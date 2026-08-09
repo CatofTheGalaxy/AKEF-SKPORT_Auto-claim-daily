@@ -4,7 +4,7 @@
 **Setup Guide:**
 1. Sign in to your Google account. If you don’t have one, please create it first.
 2. Go to the [Google Apps Script](https://script.google.com/home/start) and select Apps Script.
-3. Copy [main.gs](https://raw.githubusercontent.com/Fukki/-AKEF-SKPORT---Auto-claim-daily/refs/heads/main/main.js) and paste it into the editor.
+3. Copy [Code.gs](https://github.com/CatofTheGalaxy/AKEF-SKPORT_Auto-claim-daily/blob/main/Code.gs) and paste it into the editor.
 4. Sign in to [SKPORT](https://www.skport.com/).
 5. Find the cookie named "SK_OAUTH_CRED_KEY"
    Depending on the browser you are using:
