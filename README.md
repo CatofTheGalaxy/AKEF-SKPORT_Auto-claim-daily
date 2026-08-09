@@ -23,8 +23,8 @@
    - Choose which function to run → "main" (by default)
    - Choose which deployment should run → "Head" (by default)
    - Select event source → "Time-driven"
-   - Select type of time based trigger → "Day timer"
-   - Select time of day → Up to you (e.g. "Midnight to 1 AM", runs once at a random time within that range).
+   - Select type of time based trigger → "Minutes Timer"
+   - Select minute interval → Recommends Every 10 ~ 30 Minutes
 3. Once finished, click Save. Google will ask for permissions because the script uses authentication (well… no surprise there 😛). Click Advanced and proceed with the Unsafe option.
 
 
