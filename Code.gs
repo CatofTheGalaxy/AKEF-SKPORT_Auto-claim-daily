@@ -213,12 +213,10 @@ const buildPlayerCard = (p, b = false) => {
 	const store = PropertiesService.getScriptProperties(), key = "energy_db";
 	const { base: bs, domain: dl, dungeon: dg, bpSystem: bp, dailyMission: dm, weeklyMission: wm } = p.playerCard;
 	const en = +dg.curStamina, em = +dg.maxStamina, ex = +dg.maxTs;
-
 	const db = JSON.parse(store.getProperty(key) || "{}");
-	const savedTs = +en >= db[p?.uid]?.energy ? db[p.uid].maxTs : ex;
+	const savedTs = +en >= db[p?.skGameRole]?.energy ? db[p.skGameRole].maxTs : ex;
 	if (p?.playerCard?.dungeon) p.playerCard.dungeon.maxTs = savedTs;
-	if (p?.uid) db[p.uid] = { energy: +en, maxTs: savedTs };
-
+	if (p?.skGameRole) db[p.skGameRole] = { energy: +en, maxTs: savedTs };
 	store.setProperty(key, JSON.stringify(db));
 
 	const wrap = t => b ? `\`${t}\`` : t;
