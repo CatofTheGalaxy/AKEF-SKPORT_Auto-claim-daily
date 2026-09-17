@@ -210,8 +210,15 @@ function discordPost(rows, colCount = Settings.discordColumn || 2, useEdit = Set
 
 const buildPlayerCard = (p, b = false) => {
 	if (!p?.playerCard) return "";
+	const store = PropertiesService.getScriptProperties(), key = "energy_db";
 	const { base: bs, domain: dl, dungeon: dg, bpSystem: bp, dailyMission: dm, weeklyMission: wm } = p.playerCard;
 	const en = +dg.curStamina, em = +dg.maxStamina, ex = +dg.maxTs;
+
+	const db = JSON.parse(store.getProperty(key) || "{}"), prev = db[p.uid];
+	const savedTs = prev && en >= prev.energy ? prev.maxTs : ex;
+	db[p.uid] = { energy: en, maxTs: savedTs };
+	p.playerCard.dungeon.maxTs = savedTs;
+	store.setProperty(key, JSON.stringify(db));
 
 	const wrap = t => b ? `\`${t}\`` : t;
 	const fmt = ts => {
@@ -234,7 +241,7 @@ const buildPlayerCard = (p, b = false) => {
 		aStr += `\n\u2003→ ${d.name.trim().split(/\s+/)[0]} [${fd}/${s.length}]: ${s.length > 0 && fd === s.length ? wrap("Fulled") : `${max ? ((cur / max) * 100).toFixed(2) : "0.00"}%`}${remainList ? "\n" + remainList : ""}`;
 	});
 
-	const eStr = cap => en >= cap ? wrap("Fulled") : fmt(ex - (em - cap) * 432);
+	const eStr = cap => en >= cap ? wrap("Fulled") : fmt(savedTs - (em - cap) * 432);
 
 	return `\n🔑 Login: ${fmt(bs.lastLoginTime)}\n🌸 Daily: ${dm.dailyActivation}/${dm.maxDailyActivation}\n📅 Weekly: ${wm.score}/${wm.total}\n🌟 BP: ${bp.curLevel}/${bp.maxLevel}\n⚡️ Energy: ${en}/${em}\n${[160, 200, 240, em].map(v => `\u2003→ ${v}: ${eStr(v)}`).join("\n")}\n🏠 AIC Funds: ${aMax ? ((aSum / aMax) * 100).toFixed(2) : "0.00"}%${aStr}`;
 };
