@@ -1,5 +1,5 @@
-**Warning:** This process uses an Auth Cookie to log in to SKPORT.
-**Note:** The reset time in the code is set according to UTC+7. Please set it according to your own region.
+**Warning:** This process uses an Auth Cookie to log in to SKPORT.<br>
+**Note:** The reset time in the code is set according to UTC+7. Please set it according to your own region.<br>
 
 
 **Web App**<br>
