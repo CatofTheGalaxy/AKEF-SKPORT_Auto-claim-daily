@@ -220,7 +220,7 @@ const buildPlayerCard = (p, b = false) => {
 		if (!ts) return "-";
 		if (b) return `<t:${ts}:R>`;
 		let d = (((ts > 1e11 ? ts / 1e3 : ts) - Date.now() / 1e3) | 0), a = Math.abs(d), f = (n, u) => d > 0 ? `in ${n} ${u}${n > 1 ? "s" : ""}` : `${n} ${u}${n > 1 ? "s" : ""} ago`;
-		return a < 60 ? f(a, "sec") : a < 3600 ? f((a / 60) | 0, "min") : a < 864e2 ? f((a / 3600) | 0, "hour") : a < 6048e2 ? f((a / 864e2) | 0, "day") : a < 2592e3 ? f((a / 6048e2) | 0, "week") : f((a / 31536e3) | 0, "year");
+		return a < 60 ? f(a, "sec") : a < 3600 ? f((a / 60) | 0, "min") : a < 864e2 ? f((a / 3600) | 0, "hour") : a < 6048e2 ? f((a / 864e2) | 0, "day") : a < 2592e3 ? f((a / 6048e2) | 0, "week") : a < 31536e3 ? f((a / 2592e3) | 0, "month") : f((a / 31536e3) | 0, "year");
 	};
 
 	let shn = (n, d = 2, f = false) => {
