@@ -134,7 +134,10 @@ function discordPost(rows, colCount = Settings.discordColumn || 2, useEdit = Set
 	let hooks = discordApp.filter(o => o.notify && o.discordWebhook), k = u => bytesToHex(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, u));
 	let db = JSON.parse(store.getProperty(key) || '{"date":"","msgMap":{}}');
 	let cr = checkDailyReset(db.date, Settings.discordResetTime);
-	if (!useEdit || (useEdit && Settings.discordDailyPost && cr.isReset)) store.setProperty(key, JSON.stringify(db = { date: cr.date, msgMap: {} }));
+	
+	if (!useEdit || (useEdit && Settings.discordDailyPost && cr.isReset)) {
+		db = { date: cr.date, msgMap: {} };
+	}
 	
 	let getReset = (type, opt, extra) => {
 		let n = new Date(), o = type == 'cycle' ? extra : opt, [a, rt = "00:00:00"] = Array.isArray(o) ? (type == 'daily' ? [0, o[0]] : o) : [o?.wd ?? o?.cyc ?? 0, o?.rt ?? o], t = new Date(n);
@@ -152,7 +155,12 @@ function discordPost(rows, colCount = Settings.discordColumn || 2, useEdit = Set
 	for (let i = 0; i < rows.length; i += maxP) rowChunks.push(rows.slice(i, i + maxP));
 
 	hooks.forEach(h => {
-		let hash = k(h.discordWebhook), msgIds = db.msgMap[hash] || [], newMsgIds = [];
+		let hash = k(h.discordWebhook);
+		if (!db.msgMap) db.msgMap = {};
+		let savedMap = db.msgMap[hash];
+		let msgIds = Array.isArray(savedMap) ? savedMap : (savedMap ? [savedMap] : []);
+		let newMsgIds = [];
+
 		rowChunks.forEach((chunk, idx) => {
 			let embed = {
 				title: `📝 Endfield - Report${rowChunks.length > 1 ? ` (${idx + 1}/${rowChunks.length})` : ""} [<t:${nowTs()}:d>]`,
@@ -172,21 +180,30 @@ function discordPost(rows, colCount = Settings.discordColumn || 2, useEdit = Set
 				footer: { text: "Updated on", icon_url: "https://assets.skport.com/assets/favicon.ico" },
 				timestamp: new Date().toISOString()
 			};
-			let msgId = msgIds[idx], url = (useEdit && msgId) ? `${h.discordWebhook}/messages/${msgId}` : h.discordWebhook + "?wait=true";
-			let method = (useEdit && msgId) ? "PATCH" : "POST";
+
+			let msgId = msgIds[idx];
+			let canEdit = useEdit && msgId;
+			let url = canEdit ? `${h.discordWebhook}/messages/${msgId}` : h.discordWebhook + "?wait=true";
+			let method = canEdit ? "PATCH" : "POST";
 			let payload = JSON.stringify({ username: "Endfield Assistant", avatar_url: "https://static.skport.com/image/common/20260403/f266b2fc7ac711dc39f89929ba254681.png", embeds: [embed] });
+
 			try {
-				let res = UrlFetchApp.fetch(url, { method, payload, contentType: "application/json", muteHttpExceptions: true }), m = readMeta(res);
-				if (m.code >= 200 && m.code < 300 && (m.json?.id || msgId)) newMsgIds.push(m.json?.id || msgId);
-				else if (msgId) {
-					let pr = UrlFetchApp.fetch(h.discordWebhook + "?wait=true", { method: "POST", payload, contentType: "application/json", muteHttpExceptions: true }), pm = readMeta(pr);
+				let res = UrlFetchApp.fetch(url, { method, payload, contentType: "application/json", muteHttpExceptions: true });
+				let m = readMeta(res);
+				if (m.code >= 200 && m.code < 300) {
+					newMsgIds.push(msgId || m.json?.id);
+				} else {
+					let pr = UrlFetchApp.fetch(h.discordWebhook + "?wait=true", { method: "POST", payload, contentType: "application/json", muteHttpExceptions: true });
+					let pm = readMeta(pr);
 					if (pm.code >= 200 && pm.code < 300 && pm.json?.id) newMsgIds.push(pm.json.id);
 				}
-			} catch (e) { console.error(`Discord Error: ${e.message}`); }
+			} catch (e) {
+				console.error(`Discord Error: ${e.message}`);
+			}
 		});
 		db.msgMap[hash] = newMsgIds;
 	});
-	if (useEdit) store.setProperty(key, JSON.stringify(db));
+	store.setProperty(key, JSON.stringify(db));
 }
 
 const buildPlayerCard = (p, b = false) => {
@@ -252,15 +269,16 @@ function getNextResetTimestamps(st) {
 }
 
 function saveWebData(res) {
-	let s = PropertiesService.getScriptProperties(), u = Date.now();
-	let d = JSON.stringify({
+	const s = PropertiesService.getScriptProperties(), u = Date.now();
+	const d = JSON.stringify({
 		updatedAt: u, serverReset: getNextResetTimestamps(Settings), tz: Session.getTimeZone(),
 		accounts: res.map(({nickname:n, uid:uid, serverName:sn, success:sc, status:st, msg:m, itemIcon_url:i, playerCard:p}) => ({
 			nickname:n, uid:uid, serverName:sn, success:sc, status:st, msg:m, itemIcon_url:i,
-			playerCard: p?.base ? { base: { lastLoginTime: p.base.lastLoginTime, avatarUrl: p.base.avatarUrl }, dungeon: { curStamina: p.dungeon.curStamina, maxStamina: p.dungeon.maxStamina, maxTs: p.dungeon.maxTs}, bpSystem: { curLevel: p.bpSystem.curLevel, maxLevel: p.bpSystem.maxLevel }, dailyMission: { dailyActivation: p.dailyMission.dailyActivation, maxDailyActivation: p.dailyMission.maxDailyActivation }, weeklyMission: { score: p.weeklyMission.score, total: p.weeklyMission.total }, domain: (p.domain || []).map(d => ({ name: d.name, settlements: (p.settlements || []).filter(x => +x.level > 0).map(({level, remainMoney, moneyMax}) => ({level, remainMoney, moneyMax})) })) } : null
+			playerCard: p?.base ? { base: { lastLoginTime: p.base.lastLoginTime, avatarUrl: p.base.avatarUrl }, dungeon: { curStamina: p.dungeon.curStamina, maxStamina: p.dungeon.maxStamina, maxTs: p.dungeon.maxTs}, bpSystem: { curLevel: p.bpSystem.curLevel, maxLevel: p.bpSystem.maxLevel }, dailyMission: { dailyActivation: p.dailyMission.dailyActivation, maxDailyActivation: p.dailyMission.maxDailyActivation }, weeklyMission: { score: p.weeklyMission.score, total: p.weeklyMission.total }, domain: (p.domain || []).map(d => ({ name: d.name, settlements: (d.settlements || []).filter(x => +x.level > 0).map(({level, remainMoney, moneyMax}) => ({level, remainMoney, moneyMax})) })) } : null
 		}))
 	});
-	let c = Math.ceil(d.length / 8000);
+	
+	const c = Math.ceil(d.length / 8000);
 	s.getKeys().forEach(k => (k.startsWith('web_chunk_') || k === 'web_display_data') && s.deleteProperty(k));
 	s.setProperty('web_meta', JSON.stringify({ chunks: c, updatedAt: u }));
 	for (let i = 0; i < c; i++) s.setProperty('web_chunk_' + i, d.substring(i * 8000, i * 8000 + 8000));
