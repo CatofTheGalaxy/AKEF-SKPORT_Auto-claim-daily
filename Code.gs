@@ -71,32 +71,26 @@ const Settings = {
 
 function main() {
 	if (!profiles.length) return [];
-	let tokens = chunkedFetchAll(profiles.map(buildTokenRefresh), r => { const m = readMeta(r); return m?.code === 10002 || !!m?.json?.data?.token; })
-		.map(r => ((m = readMeta(r)) => m?.code === 10002 ? "" : (m?.json?.data?.token ?? null))());
+	
+	let tokens = chunkedFetchAll(profiles.map(buildTokenRefresh), r => !!readMeta(r)?.json?.data?.token || getSkipReason(r) !== null)
+		.map(r => readMeta(r)?.json?.data?.token || "");
 
 	let resolved = profiles.map((p, i) => ({ ...p, token: tokens[i], skGameRole: p.skGameRole || "", nickname: p.accountName || "", uid: p.uid || "", serverName: p.serverName || "", playerCard: {} }));
-	
-	const bindIdx = resolved.map((p, i) => p.token ? i : -1).filter(i => i !== -1);
-	if (bindIdx.length) {
-		chunkedFetchAll(bindIdx.map(i => buildPlayerBindingRequest(resolved[i].cred, resolved[i].token)), r => { const m = readMeta(r); return m?.json && typeof Settings.successCodes[m.json.code] !== 'undefined'; })
-			.forEach((r, k) => resolved[bindIdx[k]].bind = readMeta(r));
-		bindIdx.forEach(i => {
+	let idxs = resolved.map((p, i) => p.token ? i : -1).filter(i => i !== -1);
+
+	if (idxs.length) {
+		let binds = chunkedFetchAll(idxs.map(i => buildPlayerBindingRequest(resolved[i].cred, resolved[i].token)), isValidResp);
+		idxs.forEach((i, k) => {
+			resolved[i].bind = readMeta(binds[k]);
 			let b = resolved[i].bind?.json?.data?.list?.find(a => a.appCode === Settings.appCode)?.bindingList?.[0], r = b?.defaultRole || b?.roles?.[0];
 			if (r) Object.assign(resolved[i], { skGameRole: `${b.gameId}_${r.roleId}_${r.serverId}`, uid: r.roleId, nickname: r.nickname, serverName: r.serverName });
 		});
-	}
 
-	const cardIdx = resolved.map((p, i) => p.token ? i : -1).filter(i => i !== -1);
-	if (cardIdx.length) {
-		chunkedFetchAll(cardIdx.map(i => buildCardRequest(resolved[i].cred, resolved[i].token)), r => { const m = readMeta(r); return m?.json && typeof Settings.successCodes[m.json.code] !== 'undefined'; })
-			.forEach((r, k) => resolved[cardIdx[k]].card = readMeta(r));
-		cardIdx.forEach(i => { resolved[i].playerCard = resolved[i].card?.json?.data?.detail || {}; });
-	}
+		let cards = chunkedFetchAll(idxs.map(i => buildCardRequest(resolved[i].cred, resolved[i].token)), isValidResp);
+		idxs.forEach((i, k) => { resolved[i].playerCard = readMeta(cards[k]).json?.data?.detail || {}; });
 
-	const reqIdx = resolved.map((p, i) => p.token ? i : -1).filter(i => i !== -1);
-	if (reqIdx.length) {
-		chunkedFetchAll(reqIdx.map(i => buildAttendRequest(resolved[i], resolved[i].token)), r => { const m = readMeta(r); return m?.json && typeof Settings.successCodes[m.json.code] !== 'undefined'; })
-			.forEach((r, k) => resolved[reqIdx[k]].meta = readMeta(r));
+		let atts = chunkedFetchAll(idxs.map(i => buildAttendRequest(resolved[i], resolved[i].token)), isValidResp);
+		idxs.forEach((i, k) => { resolved[i].meta = readMeta(atts[k]); });
 	}
 
 	let results = resolved.map((p, i) => formatResult(p, p.meta, i));
@@ -107,18 +101,12 @@ function main() {
 
 function getSkipReason(r) {
 	if (!r) return null;
-	let code = r.getResponseCode(), text = r.getContentText() || "";
-	
-	let j = parseJson(text);
+	let code = r.getResponseCode(), text = r.getContentText() || "", j = parseJson(text);
 	if (j && typeof j.code !== 'undefined') {
-		if (typeof Settings.successCodes[j.code] !== 'undefined') return null;
+		if (isSuccess(j.code)) return null;
 		if (Settings.skipCodes[j.code]) return Settings.skipCodes[j.code];
 	}
-
-	if (/<!doctype|<html|Cloudflare/i.test(text)) return Settings.skipError["HTML"];
-	if (Settings.skipError[code]) return Settings.skipError[code];
-
-	return null;
+	return /<!doctype|<html|Cloudflare/i.test(text) ? Settings.skipError["HTML"] : Settings.skipError[code] || null;
 }
 
 function formatResult(p, meta, i) {
@@ -129,16 +117,12 @@ function formatResult(p, meta, i) {
 	
 	let out = { nickname: p.nickname || `#${i + 1}`, serverName: p.serverName || "", uid: p.uid, success: false, status: "", msg: "", raw: (meta?.rawText || "").slice(0, 2000), itemIcon_url: [], playerCard: p?.playerCard ?? {} };
 	let skip = getSkipReason(meta?.resp);
-	if (skip) {
-		out.status = `❌ ${skip}`;
-		out.msg = meta?.json?.message || skip;
-		console.log(`[${out.nickname} (${out.serverName})]\n🆔 ${out.uid}\n${out.status}\n${out.msg}`);
-		return out;
-	}
+	if (skip) return (out.status = `❌ ${skip}`, out.msg = meta?.json?.message || skip, console.log(`[${out.nickname} (${out.serverName})]\n🆔 ${out.uid}\n${out.status}\n${out.msg}`), out);
 
 	if (!meta?.json) return (out.status = "💥 Invalid JSON", out.msg = meta?.rawText || "No response", out);
 	let j = meta.json, acc = p.skGameRole || `#${i + 1}`;
-	if (typeof Settings.successCodes[j.code] !== 'undefined') {
+	
+	if (isSuccess(j.code)) {
 		out.success = true;
 		out.status = `✅ ${Settings.successCodes[j.code]}`;
 		let ids = j.code === 0 ? [...new Set((j.data?.awardIds || []).map(a => {
@@ -238,7 +222,7 @@ const buildPlayerCard = (p, b = false) => {
 	let fmt = ts => {
 		if (b) return `<t:${ts}:R>`;
 		let d = (((ts > 1e11 ? ts / 1e3 : ts) - Date.now() / 1e3) | 0), a = Math.abs(d), f = (n, u) => d > 0 ? `in ${n} ${u}${n > 1 ? "s" : ""}` : `${n} ${u}${n > 1 ? "s" : ""} ago`;
-		return a < 60 ? f(a, "sec") : a < 3600 ? f((a / 60) | 0, "min") : a < 864e2 ? f((a / 3600) | 0, "hour") : a < 6048e2 ? f((a / 864e2) | 0, "day") : a < 2592e3 ? f((a / 6048e2) | 0, "week") : a < 31536e3 ? f((a / 2592e3) | 0, "month") : f((a / 31536e3) | 0, "year");
+		return a < 60 ? f(a, "sec") : a < 3600 ? f((a / 60) | 0, "min") : a < 864e2 ? f((a / 3600) | 0, "hour") : a < 6048e2 ? f((a / 864e2) | 0, "day") : a < 2592e3 ? f((a / 6048e2) | 0, "month") : f((a / 31536e3) | 0, "year");
 	};
 
 	let shn = (n, d = 2, f = false) => {
@@ -299,6 +283,8 @@ function saveWebData(res) {
 	for (let i = 0; i < c; i++) s.setProperty('web_chunk_' + i, d.substring(i * 8000, i * 8000 + 8000));
 }
 
+const isSuccess = code => typeof Settings.successCodes[code] !== 'undefined';
+const isValidResp = r => { let m = readMeta(r); return (m?.json && isSuccess(m.json.code)) || getSkipReason(r) !== null; };
 const readMeta = r => ({ resp: r, json: parseJson(r?.getContentText() || ""), code: r?.getResponseCode() ?? null, rawText: r?.getContentText() || "" });
 const parseJson = s => { try { return JSON.parse(s); } catch (e) { return null; } };
 const nowTs = () => String(Math.floor(Date.now() / 1000));
