@@ -213,7 +213,7 @@ function handleErrorAlerts(rows) {
 		let target = app.dmWebhook || app.discordWebhook;
 		if (errors.length) {
 			let payload = JSON.stringify({
-				content: `<@${app.myDiscordID}> ⚠️ **พบข้อผิดพลาดในบัญชีเกม กรุณาตรวจสอบและแก้ไขด่วน!**`,
+				content: `<@${app.myDiscordID}> ⚠️ **Found an error in the game account. Please check and fix it urgently.!**`,
 				embeds: [{ title: "🚨 Endfield - Account Error Report", color: 0xFF0000, fields: errors.map(e => ({ name: `👤 **${e.nickname} (${e.serverName})**`, value: `**Status:** ${e.status}\n**Details:** ${e.msg}`, inline: false })), timestamp: new Date().toISOString() }]
 			});
 			try {
