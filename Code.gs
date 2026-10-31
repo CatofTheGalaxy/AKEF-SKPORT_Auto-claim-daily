@@ -24,7 +24,7 @@ const Settings = {
 	serverWeelyReset: [1, "03:00:00"], //format [MDay, HH:MM:SS] *MDay start 0 = sunday ~~ 6 = saturday
 	serverArsenalReset: [3, "11:00:00"], //format [MDay, HH:MM:SS] *MDay start 0 = sunday ~~ 6 = saturday
 	serverEowReset: [4, "03:00:00"],  //format [MDay, HH:MM:SS] *MDay start 0 = sunday ~~ 6 = saturday
-	serverBPCycleStart: "2026-09-02 11:00:00", //format "YYYY-MM-DD HH:MM:SS"
+	serverBPCycleStart: "2026-10-15 11:00:00", //format "YYYY-MM-DD HH:MM:SS"
 	serverBPCycleEnd: [41, "05:00:00"], //format [Cycle, HH:MM:SS] *Cycle = number of days (normally 35, 42, 49 days)
 	discordColumn: 2, //max 3 col in 1 row
 	discordUseEdit: true, //update with edit post
@@ -52,120 +52,138 @@ const Settings = {
 		Connection: "keep-alive"
 	},
 	chunkSize: 20,
-	successCodes: new Set([0, 10001])
+	successCodes: { //j.code
+		0: "Check-in Successful",
+		10001: "Ready to checkin"
+	},
+	skipCodes: { //j.code
+		10000: "Cookie Expired",
+		10002: "User Not Logged In"
+	},
+	skipError: { //html error code
+		"HTML": "Invalid HTML Response / Cloudflare Error",
+		403: "Forbidden / Access Denied",
+		500: "Internal Server Error",
+		502: "Bad Gateway",
+		504: "Gateway Timeout"
+	}
 };
 
 function main() {
 	if (!profiles.length) return [];
+	let tokens = chunkedFetchAll(profiles.map(buildTokenRefresh), r => { const m = readMeta(r); return m?.code === 10002 || !!m?.json?.data?.token; })
+		.map(r => ((m = readMeta(r)) => m?.code === 10002 ? "" : (m?.json?.data?.token ?? null))());
 
-	let tokens = chunkedFetchAll(
-		profiles.map(buildTokenRefresh),
-		r => { const m = readMeta(r); return m?.code === 10002 || !!m?.json?.data?.token; }
-	).map(r => ((m = readMeta(r)) => m?.code === 10002 ? "" : (m?.json?.data?.token ?? null))());
-
-	const resolved = profiles.map((p, i) => (tokens[i] === "" || tokens[i] === null)
-		? { ...p, token: tokens[i], skGameRole: p.skGameRole || "", nickname: p.accountName || "", uid: p.uid || "", serverName: p.serverName || "", playerCard: {} }
-		: { ...p, token: tokens[i] });
-
-	const bindIdx = resolved.map((p, i) => (p.token === "" || p.token === null) ? -1 : i).filter(i => i !== -1);
+	let resolved = profiles.map((p, i) => ({ ...p, token: tokens[i], skGameRole: p.skGameRole || "", nickname: p.accountName || "", uid: p.uid || "", serverName: p.serverName || "", playerCard: {} }));
+	
+	const bindIdx = resolved.map((p, i) => p.token ? i : -1).filter(i => i !== -1);
 	if (bindIdx.length) {
-		chunkedFetchAll(
-			bindIdx.map(i => buildPlayerBindingRequest(resolved[i].cred || "", resolved[i].token)),
-			r => { const m = readMeta(r); return m?.json && Settings.successCodes.has(m.json.code); }
-		).forEach((r, k) => resolved[bindIdx[k]].bind = readMeta(r));
-		
+		chunkedFetchAll(bindIdx.map(i => buildPlayerBindingRequest(resolved[i].cred, resolved[i].token)), r => { const m = readMeta(r); return m?.json && typeof Settings.successCodes[m.json.code] !== 'undefined'; })
+			.forEach((r, k) => resolved[bindIdx[k]].bind = readMeta(r));
 		bindIdx.forEach(i => {
-			const bList = resolved[i].bind?.json?.data?.list?.find(a => a.appCode === Settings.appCode)?.bindingList?.[0];
-			const role = bList?.defaultRole || bList?.roles?.[0];
-			if (role) {
-				resolved[i].skGameRole = `${bList.gameId}_${role.roleId}_${role.serverId}`;
-				resolved[i].uid = role.roleId;
-				resolved[i].nickname = role.nickname;
-				resolved[i].serverName = role.serverName;
-			}
+			let b = resolved[i].bind?.json?.data?.list?.find(a => a.appCode === Settings.appCode)?.bindingList?.[0], r = b?.defaultRole || b?.roles?.[0];
+			if (r) Object.assign(resolved[i], { skGameRole: `${b.gameId}_${r.roleId}_${r.serverId}`, uid: r.roleId, nickname: r.nickname, serverName: r.serverName });
 		});
 	}
 
-	const cardIdx = resolved.map((p, i) => (p.token === "" || p.token === null) ? -1 : i).filter(i => i !== -1);
+	const cardIdx = resolved.map((p, i) => p.token ? i : -1).filter(i => i !== -1);
 	if (cardIdx.length) {
-		chunkedFetchAll(
-			cardIdx.map(i => buildCardRequest(resolved[i].cred || "", resolved[i].token)),
-			r => { const m = readMeta(r); return m?.json && Settings.successCodes.has(m.json.code); }
-		).forEach((r, k) => resolved[cardIdx[k]].card = readMeta(r));
-		
-		cardIdx.forEach(i => {
-			const d = resolved[i].card?.json?.data?.detail;
-			if (!d) return;
-			resolved[i].playerCard = d;
-		});
+		chunkedFetchAll(cardIdx.map(i => buildCardRequest(resolved[i].cred, resolved[i].token)), r => { const m = readMeta(r); return m?.json && typeof Settings.successCodes[m.json.code] !== 'undefined'; })
+			.forEach((r, k) => resolved[cardIdx[k]].card = readMeta(r));
+		cardIdx.forEach(i => { resolved[i].playerCard = resolved[i].card?.json?.data?.detail || {}; });
 	}
 
-	const reqIdx = resolved.map((p, i) => (p.token === "" || p.token === null) ? -1 : i).filter(i => i !== -1);
+	const reqIdx = resolved.map((p, i) => p.token ? i : -1).filter(i => i !== -1);
 	if (reqIdx.length) {
-		chunkedFetchAll(
-			reqIdx.map(i => buildAttendRequest(resolved[i], resolved[i].token)),
-			r => { const m = readMeta(r); return m?.json && Settings.successCodes.has(m.json.code); }
-		).forEach((r, k) => resolved[reqIdx[k]].meta = readMeta(r));
+		chunkedFetchAll(reqIdx.map(i => buildAttendRequest(resolved[i], resolved[i].token)), r => { const m = readMeta(r); return m?.json && typeof Settings.successCodes[m.json.code] !== 'undefined'; })
+			.forEach((r, k) => resolved[reqIdx[k]].meta = readMeta(r));
 	}
 
-	const results = resolved.map((p, i) => formatResult(p, p.meta, i));
+	let results = resolved.map((p, i) => formatResult(p, p.meta, i));
 	discordPost(results);
 	saveWebData(results);
 	return results;
 }
 
+function getSkipReason(r) {
+	if (!r) return null;
+	let code = r.getResponseCode(), text = r.getContentText() || "";
+	
+	let j = parseJson(text);
+	if (j && typeof j.code !== 'undefined') {
+		if (typeof Settings.successCodes[j.code] !== 'undefined') return null;
+		if (Settings.skipCodes[j.code]) return Settings.skipCodes[j.code];
+	}
+
+	if (/<!doctype|<html|Cloudflare/i.test(text)) return Settings.skipError["HTML"];
+	if (Settings.skipError[code]) return Settings.skipError[code];
+
+	return null;
+}
+
 function formatResult(p, meta, i) {
-	const store = PropertiesService.getScriptProperties(), key = "reward_db";
+	let store = PropertiesService.getScriptProperties(), key = "reward_db";
 	let db = JSON.parse(store.getProperty(key) || '{"date":"","items":{},"accounts":{}}');
-	const checkReset = checkDailyReset(db.date, Settings.rewardResetTime || "00:00:00");
-	if (checkReset.isReset) store.setProperty(key, JSON.stringify(db = { date: checkReset.date, items: {}, accounts: {} }));
-	const out = { nickname: p.nickname || `#${i + 1}`, serverName: p.serverName || "", uid: p.uid, success: false, status: "", msg: "", raw: (meta?.rawText || "").slice(0, 2000), itemIcon_url: [], playerCard: p?.playerCard ?? {} };
+	let cr = checkDailyReset(db.date, Settings.rewardResetTime);
+	if (cr.isReset) store.setProperty(key, JSON.stringify(db = { date: cr.date, items: {}, accounts: {} }));
+	
+	let out = { nickname: p.nickname || `#${i + 1}`, serverName: p.serverName || "", uid: p.uid, success: false, status: "", msg: "", raw: (meta?.rawText || "").slice(0, 2000), itemIcon_url: [], playerCard: p?.playerCard ?? {} };
+	let skip = getSkipReason(meta?.resp);
+	if (skip) {
+		out.status = `❌ ${skip}`;
+		out.msg = meta?.json?.message || skip;
+		console.log(`[${out.nickname} (${out.serverName})]\n🆔 ${out.uid}\n${out.status}\n${out.msg}`);
+		return out;
+	}
+
 	if (!meta?.json) return (out.status = "💥 Invalid JSON", out.msg = meta?.rawText || "No response", out);
-	const j = meta.json, acc = p.skGameRole || `#${i + 1}`;
-	if (Settings.successCodes.has(j.code)) {
+	let j = meta.json, acc = p.skGameRole || `#${i + 1}`;
+	if (typeof Settings.successCodes[j.code] !== 'undefined') {
 		out.success = true;
-		out.status = j.code === 0 ? "✅ Check-in Successful" : "✅ Already Checked In";
-		const ids = j.code === 0 ? [...new Set((j.data?.awardIds || []).map(a => {
-			const id = String(a?.id ?? a), r = j.data.resourceInfoMap?.[id];
-			if (r) db.items[id] = [`🎁 ${r.name} x${r.count}`, r.icon || ""];
+		out.status = `✅ ${Settings.successCodes[j.code]}`;
+		let ids = j.code === 0 ? [...new Set((j.data?.awardIds || []).map(a => {
+			let id = String(a?.id ?? a), res = j.data.resourceInfoMap?.[id];
+			if (res) db.items[id] = [`🎁 ${res.name} x${res.count}`, res.icon || ""];
 			return id;
 		}))] : (db.accounts[acc] || []);
 		if (j.code === 0) { db.accounts[acc] = ids; store.setProperty(key, JSON.stringify(db)); }
 		out.msg = ids.length ? ids.map(id => db.items[id]?.[0]).join("\n") : "🎁 Successfully claimed";
 		out.itemIcon_url = ids.map(id => db.items[id]?.[1]).filter(Boolean);
-	} else (out.status = `❌ Error (Code: ${j.code})`, out.msg = j.message || "Unknown Error");
+	} else {
+		out.status = `❌ Error (Code: ${j.code})`;
+		out.msg = j.message || "Unknown Error";
+	}
 	console.log(`[${out.nickname} (${out.serverName})]\n🆔 ${out.uid}\n${out.status}\n${out.msg}${typeof buildPlayerCard !== 'undefined' ? buildPlayerCard(p) : ""}`);
 	return out;
 }
 
 function discordPost(rows, colCount = Settings.discordColumn || 2, useEdit = Settings.discordUseEdit || false) {
-	const store = PropertiesService.getScriptProperties(), key = "discord_db";
-	const hooks = discordApp.filter(o => o.notify && o.discordWebhook);
-	const k = u => Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, u).map(b => (b + 256).toString(16).slice(-2)).join("");
+	let store = PropertiesService.getScriptProperties(), key = "discord_db";
+	let hooks = discordApp.filter(o => o.notify && o.discordWebhook);
+	let k = u => bytesToHex(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, u));
 	
 	let db = JSON.parse(store.getProperty(key) || '{"date":"","msgMap":{}}');
-	const checkReset = checkDailyReset(db.date, Settings.discordResetTime || "00:00:00");
-	if (!useEdit || (useEdit && Settings.discordDailyPost && checkReset.isReset)) {
-		const finalDate = !useEdit && !checkReset.isReset ? checkResetCycle("", "").date : checkReset.date;
-		store.setProperty(key, JSON.stringify(db = { date: finalDate, msgMap: {} }));
+	let cr = checkDailyReset(db.date, Settings.discordResetTime);
+	if (!useEdit || (useEdit && Settings.discordDailyPost && cr.isReset)) {
+		store.setProperty(key, JSON.stringify(db = { date: cr.date, msgMap: {} }));
 	}
 	
-	const getReset = (type, opt, extra) => {
-		const n = new Date(), o = type == 'cycle' ? extra : opt;
-		const [a, rt = "00:00:00"] = Array.isArray(o) ? (type == 'daily' ? [0, o[0]] : o) : [o?.wd ?? o?.cyc ?? 0, o?.rt ?? o];
-		const t = new Date(n);
+	let getReset = (type, opt, extra) => {
+		let n = new Date(), o = type == 'cycle' ? extra : opt;
+		let [a, rt = "00:00:00"] = Array.isArray(o) ? (type == 'daily' ? [0, o[0]] : o) : [o?.wd ?? o?.cyc ?? 0, o?.rt ?? o];
+		let t = new Date(n);
 		t.setHours(...rt.split(':'), 0);
 		if (type != 'cycle') {
-			const d = type == 'weekly' ? (a - n.getDay() + 7) % 7 : 0;
+			let d = type == 'weekly' ? (a - n.getDay() + 7) % 7 : 0;
 			t.setDate(t.getDate() + d + (!d && t <= n ? (type == 'weekly' ? 7 : 1) : 0));
 			return Math.floor(t / 1000);
 		}
-		const b = new Date(opt.replace(" ", "T")), cyc = a * 864e5;
+		let b = new Date(opt.replace(" ", "T")), cyc = a * 864e5;
 		b.setHours(...rt.split(':'), 0);
 		return Math.floor((+b + Math.ceil((n - b + 1) / cyc) * cyc) / 1000);
 	};
 
-	const embed = {
+	let embed = {
 		title: `📝 Endfield - Report [<t:${nowTs()}:d>]`,
 		color: rows.every(r => r.success) ? [0xFF0000, 0xFFFF00, 0xFF69B4, 0x00A86B, 0xFFA500, 0x00BFFF, 0x800080][new Date().getDay()] : 0x2F3136,
 		thumbnail: { url: "https://static.skport.com/image/common/20260122/a2ab8d4de53aabd3b1c305cbdbcab688.png" },
@@ -184,8 +202,8 @@ function discordPost(rows, colCount = Settings.discordColumn || 2, useEdit = Set
 		timestamp: new Date().toISOString()
 	};
 
-	const activeHooks = hooks.map(h => {
-		const hash = k(h.discordWebhook), msgId = db.msgMap[hash];
+	let activeHooks = hooks.map(h => {
+		let hash = k(h.discordWebhook), msgId = db.msgMap[hash];
 		return {
 			...h, hash,
 			url: (useEdit && msgId) ? `${h.discordWebhook}/messages/${msgId}` : h.discordWebhook + "?wait=true",
@@ -195,38 +213,35 @@ function discordPost(rows, colCount = Settings.discordColumn || 2, useEdit = Set
 		};
 	});
 
-	if (activeHooks.length > 0) {
+	if (activeHooks.length) {
 		chunkedFetchAll(activeHooks, r => r.getResponseCode() >= 200 && r.getResponseCode() < 300)
 			.forEach((r, i) => {
-				const m = readMeta(r), hash = activeHooks[i].hash;
-				if (m.code >= 200 && m.code < 300 && useEdit && m.json?.id) {
-					db.msgMap[hash] = m.json.id;
-				}
+				let m = readMeta(r), hash = activeHooks[i].hash;
+				if (m.code >= 200 && m.code < 300 && useEdit && m.json?.id) db.msgMap[hash] = m.json.id;
 			});
 	}
-
 	if (useEdit) store.setProperty(key, JSON.stringify(db));
 }
 
 const buildPlayerCard = (p, b = false) => {
 	if (!p?.playerCard) return "";
-	const store = PropertiesService.getScriptProperties(), key = "energy_db";
-	const { base: bs, domain: dl, dungeon: dg, bpSystem: bp, dailyMission: dm, weeklyMission: wm } = p.playerCard;
-	const en = +dg.curStamina, em = +dg.maxStamina, ex = +dg.maxTs;
-	const db = JSON.parse(store.getProperty(key) || "{}");
-	const savedTs = +en >= db[p?.skGameRole]?.energy ? db[p.skGameRole].maxTs : ex;
+	let store = PropertiesService.getScriptProperties(), key = "energy_db";
+	let { base: bs, domain: dl, dungeon: dg, bpSystem: bp, dailyMission: dm, weeklyMission: wm } = p.playerCard;
+	let en = +dg.curStamina, em = +dg.maxStamina, ex = +dg.maxTs;
+	let db = JSON.parse(store.getProperty(key) || "{}");
+	let savedTs = +en >= db[p?.skGameRole]?.energy ? db[p.skGameRole].maxTs : ex;
 	if (p?.playerCard?.dungeon) p.playerCard.dungeon.maxTs = savedTs;
 	if (p?.skGameRole) db[p.skGameRole] = { energy: +en, maxTs: savedTs };
 	store.setProperty(key, JSON.stringify(db));
 
-	const wrap = t => b ? `\`${t}\`` : t;
-	const fmt = ts => {
+	let wrap = t => b ? `\`${t}\`` : t;
+	let fmt = ts => {
 		if (b) return `<t:${ts}:R>`;
-		const d = (((ts > 1e11 ? ts / 1e3 : ts) - Date.now() / 1e3) | 0), a = Math.abs(d), f = (n, u) => d > 0 ? `in ${n} ${u}${n > 1 ? "s" : ""}` : `${n} ${u}${n > 1 ? "s" : ""} ago`;
+		let d = (((ts > 1e11 ? ts / 1e3 : ts) - Date.now() / 1e3) | 0), a = Math.abs(d), f = (n, u) => d > 0 ? `in ${n} ${u}${n > 1 ? "s" : ""}` : `${n} ${u}${n > 1 ? "s" : ""} ago`;
 		return a < 60 ? f(a, "sec") : a < 3600 ? f((a / 60) | 0, "min") : a < 864e2 ? f((a / 3600) | 0, "hour") : a < 6048e2 ? f((a / 864e2) | 0, "day") : a < 2592e3 ? f((a / 6048e2) | 0, "week") : a < 31536e3 ? f((a / 2592e3) | 0, "month") : f((a / 31536e3) | 0, "year");
 	};
 
-	const shn = (n, d = 2, f = false) => {
+	let shn = (n, d = 2, f = false) => {
 		let uIdx = 0, num = +n, units = ["", "k", "m", "b", "t", "qa", "qi", "sx", "sp", "oc", "no", "dc"];
 		while (num >= 1000 && uIdx < units.length - 1) { num /= 1000; uIdx++; }
 		return (f ? num.toFixed(d) : (Number.isInteger(num) ? num.toString() : num.toFixed(d).replace(/\.?0+$/, ""))) + units[uIdx];
@@ -234,14 +249,13 @@ const buildPlayerCard = (p, b = false) => {
 
 	let aSum = 0, aMax = 0, aStr = "";
 	dl.forEach(d => {
-		const s = d.settlements.filter(x => +x.level > 0), cur = s.reduce((a, x) => a + +x.remainMoney, 0), max = s.reduce((a, x) => a + +x.moneyMax, 0), fd = s.filter(x => +x.remainMoney === +x.moneyMax).length;
-		const remainList = s.map((x, i) => `\u2003\u2003[${i + 1}]: ${shn(x.remainMoney)}/${shn(x.moneyMax)}`).join("\n");
+		let s = d.settlements.filter(x => +x.level > 0), cur = s.reduce((a, x) => a + +x.remainMoney, 0), max = s.reduce((a, x) => a + +x.moneyMax, 0), fd = s.filter(x => +x.remainMoney === +x.moneyMax).length;
+		let remainList = s.map((x, i) => `\u2003\u2003[${i + 1}]: ${shn(x.remainMoney)}/${shn(x.moneyMax)}`).join("\n");
 		aSum += cur; aMax += max;
 		aStr += `\n\u2003→ ${d.name.trim().split(/\s+/)[0]} [${fd}/${s.length}]: ${s.length > 0 && fd === s.length ? wrap("Fulled") : `${max ? ((cur / max) * 100).toFixed(2) : "0.00"}%`}${remainList ? "\n" + remainList : ""}`;
 	});
 
-	const eStr = cap => en >= cap ? wrap("Fulled") : fmt(savedTs - (em - cap) * 432);
-
+	let eStr = cap => en >= cap ? wrap("Fulled") : fmt(savedTs - (em - cap) * 432);
 	return `\n🔑 Login: ${fmt(bs.lastLoginTime)}\n🌸 Daily: ${dm.dailyActivation}/${dm.maxDailyActivation}\n📅 Weekly: ${wm.score}/${wm.total}\n🌟 BP: ${bp.curLevel}/${bp.maxLevel}\n⚡️ Energy: ${en}/${em}\n${[160, 200, 240, em].map(v => `\u2003→ ${v}: ${eStr(v)}`).join("\n")}\n🏠 AIC Funds: ${aMax ? ((aSum / aMax) * 100).toFixed(2) : "0.00"}%${aStr}`;
 };
 
@@ -250,68 +264,65 @@ function doGet(e) {
 }
 
 function getWebData() {
-	const s = PropertiesService.getScriptProperties(), m = JSON.parse(s.getProperty('web_meta') || 'null');
+	let s = PropertiesService.getScriptProperties(), m = JSON.parse(s.getProperty('web_meta') || 'null');
 	return m ? JSON.parse(Array.from({length: m.chunks}, (_, i) => s.getProperty('web_chunk_' + i)).join('')) : { updatedAt: Date.now(), accounts: [] };
 }
 
 function getNextResetTimestamps(st) {
-	const now = new Date(), nowMs = now.getTime();
-	const setT = (d, t) => { const [h, m, s] = t.split(':').map(Number); d.setHours(h, m, s, 0); return d; };
-	const ts = (d) => Math.floor(d.getTime() / 1000);
-	
-	const nTd = (t, d = setT(new Date(now), t)) => { if (d <= now) d.setDate(d.getDate() + 1); return ts(d); };
-	const nDoW = (dow, t, d = setT(new Date(now), t)) => { let df = dow - d.getDay(); if (df < 0 || (df === 0 && d <= now)) df += 7; d.setDate(d.getDate() + df); return ts(d); };
-	const nBp = (sStr, [cDays, t]) => {
-		const sMs = new Date(sStr).getTime(), cMs = cDays * 864e5;
+	let now = new Date(), nowMs = now.getTime();
+	let setT = (d, t) => { let [h, m, s] = t.split(':').map(Number); d.setHours(h, m, s, 0); return d; };
+	let ts = d => Math.floor(d.getTime() / 1000);
+	let nTd = (t, d = setT(new Date(now), t)) => { if (d <= now) d.setDate(d.getDate() + 1); return ts(d); };
+	let nDoW = (dow, t, d = setT(new Date(now), t)) => { let df = dow - d.getDay(); if (df < 0 || (df === 0 && d <= now)) df += 7; d.setDate(d.getDate() + df); return ts(d); };
+	let nBp = (sStr, [cDays, t]) => {
+		let sMs = new Date(sStr).getTime(), cMs = cDays * 864e5;
 		if (nowMs < sMs) return Math.floor(sMs / 1000);
-		const d = setT(new Date(sMs + (Math.floor((nowMs - sMs) / cMs) + 1) * cMs), t);
+		let d = setT(new Date(sMs + (Math.floor((nowMs - sMs) / cMs) + 1) * cMs), t);
 		if (d.getTime() <= nowMs) d.setTime(d.getTime() + cMs);
 		return ts(d);
 	};
-
 	return { daily: nTd(st.serverDailyReset), weekly: nDoW(st.serverWeelyReset[0], st.serverWeelyReset[1]), arsenal: nDoW(st.serverArsenalReset[0], st.serverArsenalReset[1]), bp: nBp(st.serverBPCycleStart, st.serverBPCycleEnd), eow: nDoW(st.serverEowReset[0], st.serverEowReset[1]) };
 }
 
 function saveWebData(res) {
-	const s = PropertiesService.getScriptProperties(), u = Date.now();
-	const d = JSON.stringify({
-		updatedAt: u, serverReset: getNextResetTimestamps(Settings), tz:Session.getTimeZone(),
+	let s = PropertiesService.getScriptProperties(), u = Date.now();
+	let d = JSON.stringify({
+		updatedAt: u, serverReset: getNextResetTimestamps(Settings), tz: Session.getTimeZone(),
 		accounts: res.map(({nickname:n, uid:uid, serverName:sn, success:sc, status:st, msg:m, itemIcon_url:i, playerCard:p}) => ({
 			nickname:n, uid:uid, serverName:sn, success:sc, status:st, msg:m, itemIcon_url:i,
-			playerCard: p?.base ? { base: { lastLoginTime: p.base.lastLoginTime, avatarUrl: p.base.avatarUrl }, dungeon: { curStamina: p.dungeon.curStamina, maxStamina: p.dungeon.maxStamina, maxTs: p.dungeon.maxTs}, bpSystem: { curLevel: p.bpSystem.curLevel, maxLevel: p.bpSystem.maxLevel }, dailyMission: { dailyActivation: p.dailyMission.dailyActivation, maxDailyActivation: p.dailyMission.maxDailyActivation }, weeklyMission: { score: p.weeklyMission.score, total: p.weeklyMission.total }, domain: (p.domain || []).map(d => ({ name: d.name, settlements: (d.settlements || []).filter(x => +x.level > 0).map(({level, remainMoney, moneyMax}) => ({level, remainMoney, moneyMax})) })) } : null
+			playerCard: p?.base ? { base: { lastLoginTime: p.base.lastLoginTime, avatarUrl: p.base.avatarUrl }, dungeon: { curStamina: p.dungeon.curStamina, maxStamina: p.dungeon.maxStamina, maxTs: p.dungeon.maxTs}, bpSystem: { curLevel: p.bpSystem.curLevel, maxLevel: p.bpSystem.maxLevel }, dailyMission: { dailyActivation: p.dailyMission.dailyActivation, maxDailyActivation: p.dailyMission.maxDailyActivation }, weeklyMission: { score: p.weeklyMission.score, total: p.weeklyMission.total }, domain: (p.domain || []).map(d => ({ name: d.name, settlements: (p.settlements || []).filter(x => +x.level > 0).map(({level, remainMoney, moneyMax}) => ({level, remainMoney, moneyMax})) })) } : null
 		}))
 	});
-	
-	const c = Math.ceil(d.length / 8000);
+	let c = Math.ceil(d.length / 8000);
 	s.getKeys().forEach(k => (k.startsWith('web_chunk_') || k === 'web_display_data') && s.deleteProperty(k));
 	s.setProperty('web_meta', JSON.stringify({ chunks: c, updatedAt: u }));
 	for (let i = 0; i < c; i++) s.setProperty('web_chunk_' + i, d.substring(i * 8000, i * 8000 + 8000));
 }
 
 const readMeta = r => ({ resp: r, json: parseJson(r?.getContentText() || ""), code: r?.getResponseCode() ?? null, rawText: r?.getContentText() || "" });
-const readJson = (o, size = 5000) => { const s = new WeakSet(), str = JSON.stringify(o, (k, v) => typeof v === "object" && v ? (s.has(v) ? "[Circular]" : (s.add(v), v)) : v, 2); for (let i = 0; i < str.length; i += size) console.log(str.slice(i, i + size)); };
 const parseJson = s => { try { return JSON.parse(s); } catch (e) { return null; } };
 const nowTs = () => String(Math.floor(Date.now() / 1000));
 const bytesToHex = b => b.map(x => ("0" + ((x & 0xFF).toString(16))).slice(-2)).join("");
 const checkDailyReset = (d, t = "00:00:00") => {
-	const n = new Date(), [y, m, x] = (d || "").split("-").map(Number), td = new Date(n - n.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
-	const r = !d || (g => (g.setDate(g.getDate() + 1), !(g > n)))(new Date(y, m - 1, x, ...t.split(":").map(Number)));
+	let n = new Date(), [y, m, x] = (d || "").split("-").map(Number), td = new Date(n - n.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+	let r = !d || (g => (g.setDate(g.getDate() + 1), !(g > n)))(new Date(y, m - 1, x, ...t.split(":").map(Number)));
 	return { date: r ? td : d, isReset: r };
 };
 
 function generateSign(path, body, ts, token, plat, v) {
-	const hJson = JSON.stringify({ platform: String(plat), timestamp: String(ts), dId: "", vName: String(v) });
-	const hmac = Utilities.computeHmacSha256Signature(path + (body || "") + ts + hJson, token || "");
+	let hJson = JSON.stringify({ platform: String(plat), timestamp: String(ts), dId: "", vName: String(v) });
+	let hmac = Utilities.computeHmacSha256Signature(path + (body || "") + ts + hJson, token || "");
 	return bytesToHex(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, bytesToHex(hmac)));
 }
 
 function chunkedFetchAll(reqs, isValid = r => r.getResponseCode() >= 200 && r.getResponseCode() < 300) {
-	const { chunkSize: sz = 20, retry: { max = 5, initialBackoffMs: bf = 500, maxBackoffMs: mBf = 5000 } = {} } = Settings;
-	const err = () => ({ getContentText: () => "{}", getResponseCode: () => 500 });
+	let { chunkSize: sz = 20, retry: { max = 5, initialBackoffMs: bf = 500, maxBackoffMs: mBf = 5000 } = {} } = Settings;
+	let err = () => ({ getContentText: () => "{}", getResponseCode: () => 500 });
 	return Array.from({ length: Math.ceil(reqs.length / sz) }, (_, i) => reqs.slice(i * sz, (i + 1) * sz)).flatMap(chk => {
 		let res; try { res = UrlFetchApp.fetchAll(chk); } catch (e) { console.error(`Batch Error: ${e.message}`); res = chk.map(err); }
 		return res.map((r, j) => {
 			for (let a = 0, rq = chk[j], d; a < max && !isValid(r); a++) {
+				if (getSkipReason(r)) break;
 				console.warn(`[Retry ${a+1}/${max}] ${rq.url || "Req"} (Status: ${r.getResponseCode()}) in ${d = Math.min(bf << a, mBf)}ms`);
 				Utilities.sleep(d);
 				try { r = UrlFetchApp.fetch(rq.url, rq); } catch (e) { console.error(`Fetch Error: ${e.message}`); r = err(); }
@@ -323,12 +334,12 @@ function chunkedFetchAll(reqs, isValid = r => r.getResponseCode() >= 200 && r.ge
 
 const buildTokenRefresh = p => ({ url: Settings.endpoints.refresh, method: "get", muteHttpExceptions: true, headers: { "User-Agent": Settings.userAgent, ...Settings.defaultHeaders, cred: p.cred, platform: Settings.platform, vName: Settings.vName } });
 const buildPlayerBindingRequest = (cred, tk) => {
-	const ts = nowTs(); return { url: Settings.endpoints.binding, method: "get", muteHttpExceptions: true, headers: { cred, platform: Settings.platform, vName: Settings.vName, timestamp: ts, "sk-language": "en", sign: generateSign("/api/v1/game/player/binding", "", ts, tk, Settings.platform, Settings.vName) } };
+	let ts = nowTs(); return { url: Settings.endpoints.binding, method: "get", muteHttpExceptions: true, headers: { cred, platform: Settings.platform, vName: Settings.vName, timestamp: ts, "sk-language": "en", sign: generateSign("/api/v1/game/player/binding", "", ts, tk, Settings.platform, Settings.vName) } };
 };
 const buildCardRequest = (cred, tk) => {
-	const ts = nowTs(); return { url: Settings.endpoints.card, method: "get", muteHttpExceptions: true, headers: { cred, platform: Settings.platform, vName: Settings.vName, timestamp: ts, "sk-language": "en", sign: generateSign("/api/v1/game/endfield/card/detail", "", ts, tk, Settings.platform, Settings.vName) } };
+	let ts = nowTs(); return { url: Settings.endpoints.card, method: "get", muteHttpExceptions: true, headers: { cred, platform: Settings.platform, vName: Settings.vName, timestamp: ts, "sk-language": "en", sign: generateSign("/api/v1/game/endfield/card/detail", "", ts, tk, Settings.platform, Settings.vName) } };
 };
 const buildAttendRequest = (p, tk) => {
-	const body = JSON.stringify({ role: p.skGameRole }), ts = nowTs();
+	let body = JSON.stringify({ role: p.skGameRole }), ts = nowTs();
 	return { url: Settings.endpoints.attendance, method: "post", contentType: "application/json", payload: body, muteHttpExceptions: true, headers: { ...Settings.baseAttHeaders, cred: p.cred, platform: Settings.platform, vName: Settings.vName, timestamp: ts, "sk-game-role": p.skGameRole, sign: generateSign("/web/v1/game/endfield/attendance", body, ts, tk, Settings.platform, Settings.vName) } };
 };
