@@ -211,14 +211,27 @@ function handleErrorAlerts(rows) {
 	discordApp.forEach(app => {
 		if (!app.notify || !app.myDiscordID || !app.discordWebhook) return;
 		let target = app.dmWebhook || app.discordWebhook;
+		
 		if (errors.length) {
+			let canEdit = !!db.msgId;
+			let url = canEdit ? `${target}/messages/${db.msgId}` : `${target}?wait=true`;
+			let method = canEdit ? "PATCH" : "POST";
+			
 			let payload = JSON.stringify({
 				content: `<@${app.myDiscordID}> ⚠️ **Found an error in the game account. Please check and fix it urgently.!**`,
 				embeds: [{ title: "🚨 Endfield - Account Error Report", color: 0xFF0000, fields: errors.map(e => ({ name: `👤 **${e.nickname} (${e.serverName})**`, value: `**Status:** ${e.status}\n**Details:** ${e.msg}`, inline: false })), timestamp: new Date().toISOString() }]
 			});
+			
 			try {
-				let m = readMeta(fetchRetry(`${target}?wait=true`, { method: "POST", payload, contentType: "application/json", muteHttpExceptions: true }));
-				if (m.code < 300 && m.json?.id) db.msgId = m.json.id;
+				let res = fetchRetry(url, { method, payload, contentType: "application/json", muteHttpExceptions: true });
+				let m = readMeta(res);
+				if (m.code < 300) {
+					if (!canEdit && m.json?.id) db.msgId = m.json.id;
+				} else if (canEdit) {
+					let newRes = fetchRetry(`${target}?wait=true`, { method: "POST", payload, contentType: "application/json", muteHttpExceptions: true });
+					let newM = readMeta(newRes);
+					if (newM.code < 300 && newM.json?.id) db.msgId = newM.json.id;
+				}
 			} catch (e) { console.error(`Error Alert Failed: ${e.message}`); }
 		} else if (db.msgId) {
 			try { fetchRetry(`${target}/messages/${db.msgId}`, { method: "DELETE", muteHttpExceptions: true }); db.msgId = ""; } catch (e) { console.error(`Delete Error Msg Failed: ${e.message}`); }
