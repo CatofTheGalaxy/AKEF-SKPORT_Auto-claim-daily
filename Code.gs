@@ -156,7 +156,8 @@ function discordPost(rows, colCount = Settings.discordColumn || 2, useEdit = Set
 
 	hooks.forEach(h => {
 		const hash = k(h.discordWebhook);
-		const msgIds = Array.isArray(db.msgMap[hash]) ? db.msgMap[hash] : (db.msgMap[hash] ? [db.msgMap[hash]] : []);
+		let savedMap = db.msgMap[hash];
+		let msgIds = Array.isArray(savedMap) ? savedMap : (savedMap ? [savedMap] : []);
 		let newMsgIds = [];
 
 		rowChunks.forEach((chunk, idx) => {
@@ -179,8 +180,9 @@ function discordPost(rows, colCount = Settings.discordColumn || 2, useEdit = Set
 				timestamp: new Date().toISOString()
 			};
 
-			const existingId = msgIds[idx], canEdit = useEdit && existingId;
-			const url = canEdit ? `${h.discordWebhook}/messages/${existingId}` : h.discordWebhook + "?wait=true";
+			const existingId = msgIds[idx];
+			const canEdit = useEdit && !!existingId;
+			const url = canEdit ? `${h.discordWebhook}/messages/${existingId}` : `${h.discordWebhook}?wait=true`;
 			const method = canEdit ? "PATCH" : "POST";
 			const payload = JSON.stringify({ username: "Endfield Assistant", avatar_url: "https://static.skport.com/image/common/20260403/f266b2fc7ac711dc39f89929ba254681.png", embeds: [embed] });
 
@@ -190,10 +192,16 @@ function discordPost(rows, colCount = Settings.discordColumn || 2, useEdit = Set
 				if (m.code >= 200 && m.code < 300) {
 					let activeId = existingId || m.json?.id;
 					if (activeId) newMsgIds.push(activeId);
-				} else {
-					let pr = UrlFetchApp.fetch(h.discordWebhook + "?wait=true", { method: "POST", payload, contentType: "application/json", muteHttpExceptions: true });
+				} else if (canEdit) {
+					let pr = UrlFetchApp.fetch(`${h.discordWebhook}?wait=true`, { method: "POST", payload, contentType: "application/json", muteHttpExceptions: true });
 					let pm = readMeta(pr);
-					if (pm.code >= 200 && pm.code < 300 && pm.json?.id) newMsgIds.push(pm.json.id);
+					if (pm.code >= 200 && pm.code < 300 && pm.json?.id) {
+						newMsgIds.push(pm.json.id);
+					} else {
+						newMsgIds.push(existingId);
+					}
+				} else if (existingId) {
+					newMsgIds.push(existingId);
 				}
 			} catch (e) {
 				console.error(`Discord Error: ${e.message}`);
