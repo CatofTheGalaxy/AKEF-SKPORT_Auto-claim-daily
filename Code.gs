@@ -58,7 +58,7 @@ const Settings = {
 	skipError: { "HTML": "Invalid HTML Response / Cloudflare Error", 403: "Forbidden / Access Denied", 500: "Internal Server Error", 502: "Bad Gateway", 504: "Gateway Timeout" }
 };
 
-function main() {
+ffunction main() {
 	if (!profiles.length) return [];
 	let tokens = chunkedFetchAll(profiles.map(buildTokenRefresh), r => !!readMeta(r)?.json?.data?.token || getSkipReason(r) !== null).map(r => readMeta(r)?.json?.data?.token || "");
 	let resolved = profiles.map((p, i) => ({ ...p, token: tokens[i], skGameRole: p.skGameRole || "", nickname: p.accountName || "", uid: p.uid || "", serverName: p.serverName || "", playerCard: {} }));
@@ -81,18 +81,9 @@ function main() {
 
 	let results = resolved.map((p, i) => formatResult(p, p.meta, i));
 	discordPost(results);
+	handleErrorAlerts(results);
 	saveWebData(results);
 	return results;
-}
-
-function getSkipReason(r) {
-	if (!r) return null;
-	let code = r.getResponseCode(), text = r.getContentText() || "", j = parseJson(text);
-	if (j && typeof j.code !== 'undefined') {
-		if (isSuccess(j.code)) return null;
-		if (Settings.skipCodes[j.code]) return Settings.skipCodes[j.code];
-	}
-	return /<!doctype|<html|Cloudflare/i.test(text) ? Settings.skipError["HTML"] : Settings.skipError[code] || null;
 }
 
 function formatResult(p, meta, i) {
@@ -204,6 +195,38 @@ function discordPost(rows, colCount = Settings.discordColumn || 2, useEdit = Set
 	store.setProperty(key, JSON.stringify(db));
 }
 
+function handleErrorAlerts(rows) {
+	const store = PropertiesService.getScriptProperties(), key = "discord_error_db";
+	let db = JSON.parse(store.getProperty(key) || '{"msgId":""}'), errors = rows.filter(r => !r.success);
+	let { max = 5, initialBackoffMs: bf = 500, maxBackoffMs: mBf = 5000 } = Settings.retry || {};
+
+	let fetchRetry = (url, opts) => {
+		for (let a = 0, res, err; a < max; a++) {
+			try { if ((res = UrlFetchApp.fetch(url, opts)).getResponseCode() < 300) return res; } catch (e) { err = e; }
+			if (a === max - 1 && err) throw err;
+			Utilities.sleep(Math.min(bf << a, mBf));
+		}
+	};
+
+	discordApp.forEach(app => {
+		if (!app.notify || !app.myDiscordID || !app.discordWebhook) return;
+		let target = app.dmWebhook || app.discordWebhook;
+		if (errors.length) {
+			let payload = JSON.stringify({
+				content: `<@${app.myDiscordID}> ⚠️ **พบข้อผิดพลาดในบัญชีเกม กรุณาตรวจสอบและแก้ไขด่วน!**`,
+				embeds: [{ title: "🚨 Endfield - Account Error Report", color: 0xFF0000, fields: errors.map(e => ({ name: `👤 **${e.nickname} (${e.serverName})**`, value: `**Status:** ${e.status}\n**Details:** ${e.msg}`, inline: false })), timestamp: new Date().toISOString() }]
+			});
+			try {
+				let m = readMeta(fetchRetry(`${target}?wait=true`, { method: "POST", payload, contentType: "application/json", muteHttpExceptions: true }));
+				if (m.code < 300 && m.json?.id) db.msgId = m.json.id;
+			} catch (e) { console.error(`Error Alert Failed: ${e.message}`); }
+		} else if (db.msgId) {
+			try { fetchRetry(`${target}/messages/${db.msgId}`, { method: "DELETE", muteHttpExceptions: true }); db.msgId = ""; } catch (e) { console.error(`Delete Error Msg Failed: ${e.message}`); }
+		}
+	});
+	store.setProperty(key, JSON.stringify(db));
+}
+
 const buildPlayerCard = (p, b = false) => {
 	if (!p?.playerCard?.base || !p?.playerCard?.dungeon) return "";
 	let store = PropertiesService.getScriptProperties(), key = "energy_db";
@@ -220,7 +243,7 @@ const buildPlayerCard = (p, b = false) => {
 		if (!ts) return "-";
 		if (b) return `<t:${ts}:R>`;
 		let d = (((ts > 1e11 ? ts / 1e3 : ts) - Date.now() / 1e3) | 0), a = Math.abs(d), f = (n, u) => d > 0 ? `in ${n} ${u}${n > 1 ? "s" : ""}` : `${n} ${u}${n > 1 ? "s" : ""} ago`;
-		return a < 60 ? f(a, "sec") : a < 3600 ? f((a / 60) | 0, "min") : a < 864e2 ? f((a / 3600) | 0, "hour") : a < 6048e2 ? f((a / 864e2) | 0, "day") : a < 2592e3 ? f((a / 6048e2) | 0, "week") : a < 31536e3 ? f((a / 2592e3) | 0, "month") : f((a / 31536e3) | 0, "year");
+		return a < 60 ? f(a, "sec") : a < 3600 ? f((a / 60) | 0, "min") : a < 864e2 ? f((a / 3600) | 0, "hour") : a < 6048e2 ? f((a / 864e2) | 0, "day") : a < 24192e2 ? f((a / 6048e2) | 0, "week") : a < 31536e3 ? f((a / 2592e3) | 0, "month") : f((a / 31536e3) | 0, "year");
 	};
 
 	let shn = (n, d = 2, f = false) => {
@@ -291,6 +314,15 @@ function saveWebData(res) {
 	for (let i = 0; i < c; i++) s.setProperty('web_chunk_' + i, d.substring(i * 8000, i * 8000 + 8000));
 }
 
+function getSkipReason(r) {
+	if (!r) return null;
+	let code = r.getResponseCode(), text = r.getContentText() || "", j = parseJson(text);
+	if (j && typeof j.code !== 'undefined') {
+		if (isSuccess(j.code)) return null;
+		if (Settings.skipCodes[j.code]) return Settings.skipCodes[j.code];
+	}
+	return /<!doctype|<html|Cloudflare/i.test(text) ? Settings.skipError["HTML"] : Settings.skipError[code] || null;
+}
 const isSuccess = code => typeof Settings.successCodes[code] !== 'undefined';
 const isValidResp = r => { let m = readMeta(r); return (m?.json && isSuccess(m.json.code)) || getSkipReason(r) !== null; };
 const readMeta = r => ({ resp: r, json: parseJson(r?.getContentText() || ""), code: r?.getResponseCode() ?? null, rawText: r?.getContentText() || "" });
