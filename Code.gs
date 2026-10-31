@@ -29,6 +29,7 @@ const Settings = {
 	discordColumn: 2, //max 3 col in 1 row
 	discordUseEdit: true, //update with edit post
 	discordDailyPost: true, //new post everyday follow discordResetTime
+	discordProfilesPerPost: 6, //max profiles per discord post/message
 	retry: { max: 5, initialBackoffMs: 500, maxBackoffMs: 5000 },
 	endpoints: {
 		refresh: "https://zonai.skport.com/web/v1/auth/refresh",
@@ -59,9 +60,7 @@ const Settings = {
 
 function main() {
 	if (!profiles.length) return [];
-	let tokens = chunkedFetchAll(profiles.map(buildTokenRefresh), r => !!readMeta(r)?.json?.data?.token || getSkipReason(r) !== null)
-		.map(r => readMeta(r)?.json?.data?.token || "");
-
+	let tokens = chunkedFetchAll(profiles.map(buildTokenRefresh), r => !!readMeta(r)?.json?.data?.token || getSkipReason(r) !== null).map(r => readMeta(r)?.json?.data?.token || "");
 	let resolved = profiles.map((p, i) => ({ ...p, token: tokens[i], skGameRole: p.skGameRole || "", nickname: p.accountName || "", uid: p.uid || "", serverName: p.serverName || "", playerCard: {} }));
 	let idxs = resolved.map((p, i) => p.token ? i : -1).filter(i => i !== -1);
 
@@ -134,68 +133,75 @@ function discordPost(rows, colCount = Settings.discordColumn || 2, useEdit = Set
 	const k = u => Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, u).map(b => (b + 256).toString(16).slice(-2)).join("");
 	
 	let db = JSON.parse(store.getProperty(key) || '{"date":"","msgMap":{}}');
-	const checkReset = checkDailyReset(db.date, Settings.discordResetTime || "00:00:00");
-	if (!useEdit || (useEdit && Settings.discordDailyPost && checkReset.isReset)) {
-		const finalDate = !useEdit && !checkReset.isReset ? checkResetCycle("", "").date : checkReset.date;
-		store.setProperty(key, JSON.stringify(db = { date: finalDate, msgMap: {} }));
-	}
-	
+	const cr = checkDailyReset(db.date, Settings.discordResetTime || "00:00:00");
+	if (!useEdit || (useEdit && Settings.discordDailyPost && cr.isReset)) db = { date: cr.date, msgMap: {} };
+	if (!db.msgMap) db.msgMap = {};
+
 	const getReset = (type, opt, extra) => {
 		const n = new Date(), o = type == 'cycle' ? extra : opt;
 		const [a, rt = "00:00:00"] = Array.isArray(o) ? (type == 'daily' ? [0, o[0]] : o) : [o?.wd ?? o?.cyc ?? 0, o?.rt ?? o];
-		const t = new Date(n);
-		t.setHours(...rt.split(':'), 0);
+		const t = new Date(n); t.setHours(...rt.split(':'), 0);
 		if (type != 'cycle') {
 			const d = type == 'weekly' ? (a - n.getDay() + 7) % 7 : 0;
 			t.setDate(t.getDate() + d + (!d && t <= n ? (type == 'weekly' ? 7 : 1) : 0));
 			return Math.floor(t / 1000);
 		}
-		const b = new Date(opt.replace(" ", "T")), cyc = a * 864e5;
-		b.setHours(...rt.split(':'), 0);
+		const b = new Date(opt.replace(" ", "T")), cyc = a * 864e5; b.setHours(...rt.split(':'), 0);
 		return Math.floor((+b + Math.ceil((n - b + 1) / cyc) * cyc) / 1000);
 	};
 
-	const embed = {
-		title: `📝 Endfield - Report [<t:${nowTs()}:d>]`,
-		color: rows.every(r => r.success) ? [0xFF0000, 0xFFFF00, 0xFF69B4, 0x00A86B, 0xFFA500, 0x00BFFF, 0x800080][new Date().getDay()] : 0x2F3136,
-		thumbnail: { url: "https://static.skport.com/image/common/20260122/a2ab8d4de53aabd3b1c305cbdbcab688.png" },
-		fields: [
-			{ name: "**Useful Link**", value: "[App](https://script.google.com/home/my) | [Home](https://endfield.gryphline.com/) | [Sched](https://endfield.gryphline.com/en-us#calendar) | [SKP](https://www.skport.com/) | [Wiki](https://wiki.skport.com/endfield) | [Guide](https://www.prydwen.gg/arknights-endfield/) | [Map](https://opendfieldmap.org/) | [BP#1](https://endfieldtools.dev/community-factories/) | [BP#2](https://talospioneers.com) | [Ess](https://endfieldtools.dev/weapon-essence-solver/)", inline: false },
-			{ name: "**Server Reset**", value: `🌸 Daily: <t:${getReset('daily', Settings.serverDailyReset)}:R>\n🛒 Arsenal: <t:${getReset('weekly', Settings.serverArsenalReset)}:R>\n⚔️ EoW: <t:${getReset('weekly', Settings.serverEowReset)}:R>`, inline: true },
-			{ name: `\u200B`, value: `📅 Weekly: <t:${getReset('weekly', Settings.serverWeelyReset)}:R>\n🌟 BP: <t:${getReset('cycle', Settings.serverBPCycleStart, Settings.serverBPCycleEnd)}:R>`, inline: true },
-			{ name: "", value: "", inline: false },
-			...rows.flatMap((r, i) => [{
-				name: `👤 **${r.nickname} (${r.serverName})**\n🆔 \`${r.uid}\``,
-				value: `**Status:**\n\u2003${r.status}\n**Response:**\n\u2003${r.msg.replace(/\n/g, '\n\u2003')}${buildPlayerCard(r, true).replace(/\n/g, '\n\u2003')}`,
-				inline: true
-			}, ...((i + 1) % colCount === 0 && i + 1 < rows.length ? [{ name: "", value: "", inline: false }] : [])])
-		],
-		footer: { text: "Updated on", icon_url: "https://assets.skport.com/assets/favicon.ico" },
-		timestamp: new Date().toISOString()
-	};
+	let maxP = Settings.discordProfilesPerPost || 6, rowChunks = [];
+	for (let i = 0; i < rows.length; i += maxP) rowChunks.push(rows.slice(i, i + maxP));
 
-	const activeHooks = hooks.map(h => {
-		const hash = k(h.discordWebhook), msgId = db.msgMap[hash];
-		return {
-			...h, hash,
-			url: (useEdit && msgId) ? `${h.discordWebhook}/messages/${msgId}` : h.discordWebhook + "?wait=true",
-			method: (useEdit && msgId) ? "PATCH" : "POST",
-			payload: JSON.stringify({ username: "Endfield Assistant", avatar_url: "https://static.skport.com/image/common/20260403/f266b2fc7ac711dc39f89929ba254681.png", embeds: [embed] }),
-			contentType: "application/json", muteHttpExceptions: true
-		};
-	});
+	hooks.forEach(h => {
+		const hash = k(h.discordWebhook);
+		const msgIds = Array.isArray(db.msgMap[hash]) ? db.msgMap[hash] : (db.msgMap[hash] ? [db.msgMap[hash]] : []);
+		let newMsgIds = [];
 
-	if (activeHooks.length > 0) {
-		chunkedFetchAll(activeHooks, r => r.getResponseCode() >= 200 && r.getResponseCode() < 300)
-			.forEach((r, i) => {
-				const m = readMeta(r), hash = activeHooks[i].hash;
-				if (m.code >= 200 && m.code < 300 && useEdit && m.json?.id) {
-					db.msgMap[hash] = m.json.id;
+		rowChunks.forEach((chunk, idx) => {
+			const embed = {
+				title: `📝 Endfield - Report${rowChunks.length > 1 ? ` (${idx + 1}/${rowChunks.length})` : ""} [<t:${nowTs()}:d>]`,
+				color: chunk.every(r => r.success) ? [0xFF0000, 0xFFFF00, 0xFF69B4, 0x00A86B, 0xFFA500, 0x00BFFF, 0x800080][new Date().getDay()] : 0x2F3136,
+				thumbnail: { url: "https://static.skport.com/image/common/20260122/a2ab8d4de53aabd3b1c305cbdbcab688.png" },
+				fields: [
+					{ name: "**Useful Link**", value: "[App](https://script.google.com/home/my) | [Home](https://endfield.gryphline.com/) | [Sched](https://endfield.gryphline.com/en-us#calendar) | [SKP](https://www.skport.com/) | [Wiki](https://wiki.skport.com/endfield) | [Guide](https://www.prydwen.gg/arknights-endfield/) | [Map](https://opendfieldmap.org/) | [BP#1](https://endfieldtools.dev/community-factories/) | [BP#2](https://talospioneers.com) | [Ess](https://endfieldtools.dev/weapon-essence-solver/)", inline: false },
+					{ name: "**Server Reset**", value: `🌸 Daily: <t:${getReset('daily', Settings.serverDailyReset)}:R>\n🛒 Arsenal: <t:${getReset('weekly', Settings.serverArsenalReset)}:R>\n⚔️ EoW: <t:${getReset('weekly', Settings.serverEowReset)}:R>`, inline: true },
+					{ name: `\u200B`, value: `📅 Weekly: <t:${getReset('weekly', Settings.serverWeelyReset)}:R>\n🌟 BP: <t:${getReset('cycle', Settings.serverBPCycleStart, Settings.serverBPCycleEnd)}:R>`, inline: true },
+					{ name: "", value: "", inline: false },
+					...chunk.flatMap((r, i) => [{
+						name: `👤 **${r.nickname} (${r.serverName})**\n🆔 \`${r.uid}\``,
+						value: `**Status:**\n\u2003${r.status}\n**Response:**\n\u2003${r.msg.replace(/\n/g, '\n\u2003')}${buildPlayerCard(r, true).replace(/\n/g, '\n\u2003')}`,
+						inline: true
+					}, ...((i + 1) % colCount === 0 && i + 1 < chunk.length ? [{ name: "", value: "", inline: false }] : [])])
+				],
+				footer: { text: "Updated on", icon_url: "https://assets.skport.com/assets/favicon.ico" },
+				timestamp: new Date().toISOString()
+			};
+
+			const existingId = msgIds[idx], canEdit = useEdit && existingId;
+			const url = canEdit ? `${h.discordWebhook}/messages/${existingId}` : h.discordWebhook + "?wait=true";
+			const method = canEdit ? "PATCH" : "POST";
+			const payload = JSON.stringify({ username: "Endfield Assistant", avatar_url: "https://static.skport.com/image/common/20260403/f266b2fc7ac711dc39f89929ba254681.png", embeds: [embed] });
+
+			try {
+				let res = UrlFetchApp.fetch(url, { method, payload, contentType: "application/json", muteHttpExceptions: true });
+				let m = readMeta(res);
+				if (m.code >= 200 && m.code < 300) {
+					let activeId = existingId || m.json?.id;
+					if (activeId) newMsgIds.push(activeId);
+				} else {
+					let pr = UrlFetchApp.fetch(h.discordWebhook + "?wait=true", { method: "POST", payload, contentType: "application/json", muteHttpExceptions: true });
+					let pm = readMeta(pr);
+					if (pm.code >= 200 && pm.code < 300 && pm.json?.id) newMsgIds.push(pm.json.id);
 				}
-			});
-	}
-
-	if (useEdit) store.setProperty(key, JSON.stringify(db));
+			} catch (e) {
+				console.error(`Discord Error: ${e.message}`);
+				if (existingId) newMsgIds.push(existingId);
+			}
+		});
+		db.msgMap[hash] = newMsgIds;
+	});
+	store.setProperty(key, JSON.stringify(db));
 }
 
 const buildPlayerCard = (p, b = false) => {
@@ -214,7 +220,7 @@ const buildPlayerCard = (p, b = false) => {
 		if (!ts) return "-";
 		if (b) return `<t:${ts}:R>`;
 		let d = (((ts > 1e11 ? ts / 1e3 : ts) - Date.now() / 1e3) | 0), a = Math.abs(d), f = (n, u) => d > 0 ? `in ${n} ${u}${n > 1 ? "s" : ""}` : `${n} ${u}${n > 1 ? "s" : ""} ago`;
-		return a < 60 ? f(a, "sec") : a < 3600 ? f((a / 60) | 0, "min") : a < 864e2 ? f((a / 3600) | 0, "hour") : a < 6048e2 ? f((a / 864e2) | 0, "day") : a < 2592e3 ? f((a / 6048e2) | 0, "week") : a < 31536e3 ? f((a / 2592e3) | 0, "month") : f((a / 31536e3) | 0, "year");
+		return a < 60 ? f(a, "sec") : a < 3600 ? f((a / 60) | 0, "min") : a < 864e2 ? f((a / 3600) | 0, "hour") : a < 6048e2 ? f((a / 864e2) | 0, "day") : a < 2592e3 ? f((a / 6048e2) | 0, "week") : f((a / 31536e3) | 0, "year");
 	};
 
 	let shn = (n, d = 2, f = false) => {
@@ -265,11 +271,20 @@ function saveWebData(res) {
 	const d = JSON.stringify({
 		updatedAt: u, serverReset: getNextResetTimestamps(Settings), tz: Session.getTimeZone(),
 		accounts: res.map(({nickname:n, uid:uid, serverName:sn, success:sc, status:st, msg:m, itemIcon_url:i, playerCard:p}) => ({
-			nickname:n, uid:uid, serverName:sn, success:sc, status:st, msg:m, itemIcon_url:i,
-			playerCard: p?.base ? { base: { lastLoginTime: p.base.lastLoginTime, avatarUrl: p.base.avatarUrl }, dungeon: { curStamina: p.dungeon.curStamina, maxStamina: p.dungeon.maxStamina, maxTs: p.dungeon.maxTs}, bpSystem: { curLevel: p.bpSystem.curLevel, maxLevel: p.bpSystem.maxLevel }, dailyMission: { dailyActivation: p.dailyMission.dailyActivation, maxDailyActivation: p.dailyMission.maxDailyActivation }, weeklyMission: { score: p.weeklyMission.score, total: p.weeklyMission.total }, domain: (p.domain || []).map(d => ({ name: d.name, settlements: (d.settlements || []).filter(x => +x.level > 0).map(({level, remainMoney, moneyMax}) => ({level, remainMoney, moneyMax})) })) } : null
+			nickname: n, uid: uid, serverName: sn, success: sc, status: st, msg: m, itemIcon_url: i,
+			playerCard: p?.base ? {
+				base: { lastLoginTime: p.base.lastLoginTime, avatarUrl: p.base.avatarUrl },
+				dungeon: { curStamina: p.dungeon.curStamina, maxStamina: p.dungeon.maxStamina, maxTs: p.dungeon.maxTs },
+				bpSystem: { curLevel: p.bpSystem.curLevel, maxLevel: p.bpSystem.maxLevel },
+				dailyMission: { dailyActivation: p.dailyMission.dailyActivation, maxDailyActivation: p.dailyMission.maxDailyActivation },
+				weeklyMission: { score: p.weeklyMission.score, total: p.weeklyMission.total },
+				domain: (p.domain || []).map(dom => ({
+					name: dom.name,
+					settlements: (dom.settlements || []).filter(x => +x.level > 0).map(({ level, remainMoney, moneyMax }) => ({ level, remainMoney, moneyMax }))
+				}))
+			} : null
 		}))
 	});
-	
 	const c = Math.ceil(d.length / 8000);
 	s.getKeys().forEach(k => (k.startsWith('web_chunk_') || k === 'web_display_data') && s.deleteProperty(k));
 	s.setProperty('web_meta', JSON.stringify({ chunks: c, updatedAt: u }));
@@ -279,6 +294,7 @@ function saveWebData(res) {
 const isSuccess = code => typeof Settings.successCodes[code] !== 'undefined';
 const isValidResp = r => { let m = readMeta(r); return (m?.json && isSuccess(m.json.code)) || getSkipReason(r) !== null; };
 const readMeta = r => ({ resp: r, json: parseJson(r?.getContentText() || ""), code: r?.getResponseCode() ?? null, rawText: r?.getContentText() || "" });
+const readJson = (o, size = 5000) => { const s = new WeakSet(), str = JSON.stringify(o, (k, v) => typeof v === "object" && v ? (s.has(v) ? "[Circular]" : (s.add(v), v)) : v, 2); for (let i = 0; i < str.length; i += size) console.log(str.slice(i, i + size)); };
 const parseJson = s => { try { return JSON.parse(s); } catch (e) { return null; } };
 const nowTs = () => String(Math.floor(Date.now() / 1000));
 const bytesToHex = b => b.map(x => ("0" + ((x & 0xFF).toString(16))).slice(-2)).join("");
