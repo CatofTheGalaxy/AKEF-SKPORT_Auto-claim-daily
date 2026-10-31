@@ -86,6 +86,16 @@ function main() {
 	return results;
 }
 
+function getSkipReason(r) {
+	if (!r) return null;
+	let code = r.getResponseCode(), text = r.getContentText() || "", j = parseJson(text);
+	if (j && typeof j.code !== 'undefined') {
+		if (isSuccess(j.code)) return null;
+		if (Settings.skipCodes[j.code]) return Settings.skipCodes[j.code];
+	}
+	return /<!doctype|<html|Cloudflare/i.test(text) ? Settings.skipError["HTML"] : Settings.skipError[code] || null;
+}
+
 function formatResult(p, meta, i) {
 	let store = PropertiesService.getScriptProperties(), key = "reward_db";
 	let db = JSON.parse(store.getProperty(key) || '{"date":"","items":{},"accounts":{}}');
@@ -198,15 +208,6 @@ function discordPost(rows, colCount = Settings.discordColumn || 2, useEdit = Set
 function handleErrorAlerts(rows) {
 	const store = PropertiesService.getScriptProperties(), key = "discord_error_db";
 	let db = JSON.parse(store.getProperty(key) || '{"msgId":""}'), errors = rows.filter(r => !r.success);
-	let { max = 5, initialBackoffMs: bf = 500, maxBackoffMs: mBf = 5000 } = Settings.retry || {};
-
-	let fetchRetry = (url, opts) => {
-		for (let a = 0, res, err; a < max; a++) {
-			try { if ((res = UrlFetchApp.fetch(url, opts)).getResponseCode() < 300) return res; } catch (e) { err = e; }
-			if (a === max - 1 && err) throw err;
-			Utilities.sleep(Math.min(bf << a, mBf));
-		}
-	};
 
 	discordApp.forEach(app => {
 		if (!app.notify || !app.myDiscordID || !app.discordWebhook) return;
@@ -223,18 +224,21 @@ function handleErrorAlerts(rows) {
 			});
 			
 			try {
-				let res = fetchRetry(url, { method, payload, contentType: "application/json", muteHttpExceptions: true });
+				let res = chunkedFetchAll([{ url, method, payload, contentType: "application/json", muteHttpExceptions: true }])[0];
 				let m = readMeta(res);
 				if (m.code < 300) {
 					if (!canEdit && m.json?.id) db.msgId = m.json.id;
 				} else if (canEdit) {
-					let newRes = fetchRetry(`${target}?wait=true`, { method: "POST", payload, contentType: "application/json", muteHttpExceptions: true });
+					let newRes = chunkedFetchAll([{ url: `${target}?wait=true`, method: "POST", payload, contentType: "application/json", muteHttpExceptions: true }])[0];
 					let newM = readMeta(newRes);
 					if (newM.code < 300 && newM.json?.id) db.msgId = newM.json.id;
 				}
 			} catch (e) { console.error(`Error Alert Failed: ${e.message}`); }
 		} else if (db.msgId) {
-			try { fetchRetry(`${target}/messages/${db.msgId}`, { method: "DELETE", muteHttpExceptions: true }); db.msgId = ""; } catch (e) { console.error(`Delete Error Msg Failed: ${e.message}`); }
+			try {
+				chunkedFetchAll([{ url: `${target}/messages/${db.msgId}`, method: "DELETE", muteHttpExceptions: true }]);
+				db.msgId = "";
+			} catch (e) { console.error(`Delete Error Msg Failed: ${e.message}`); }
 		}
 	});
 	store.setProperty(key, JSON.stringify(db));
@@ -327,15 +331,6 @@ function saveWebData(res) {
 	for (let i = 0; i < c; i++) s.setProperty('web_chunk_' + i, d.substring(i * 8000, i * 8000 + 8000));
 }
 
-function getSkipReason(r) {
-	if (!r) return null;
-	let code = r.getResponseCode(), text = r.getContentText() || "", j = parseJson(text);
-	if (j && typeof j.code !== 'undefined') {
-		if (isSuccess(j.code)) return null;
-		if (Settings.skipCodes[j.code]) return Settings.skipCodes[j.code];
-	}
-	return /<!doctype|<html|Cloudflare/i.test(text) ? Settings.skipError["HTML"] : Settings.skipError[code] || null;
-}
 const isSuccess = code => typeof Settings.successCodes[code] !== 'undefined';
 const isValidResp = r => { let m = readMeta(r); return (m?.json && isSuccess(m.json.code)) || getSkipReason(r) !== null; };
 const readMeta = r => ({ resp: r, json: parseJson(r?.getContentText() || ""), code: r?.getResponseCode() ?? null, rawText: r?.getContentText() || "" });
