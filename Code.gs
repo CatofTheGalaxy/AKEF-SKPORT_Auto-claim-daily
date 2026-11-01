@@ -177,28 +177,23 @@ function discordPost(rows, colCount = Settings.discordColumn || 2, useEdit = Set
 			const payload = JSON.stringify({ username: "Endfield Assistant", avatar_url: "https://static.skport.com/image/common/20260403/f266b2fc7ac711dc39f89929ba254681.png", embeds: [embed] });
 
 			try {
-				let res = UrlFetchApp.fetch(url, { method, payload, contentType: "application/json", muteHttpExceptions: true });
+				let res = chunkedFetchAll([{ url, method, payload, contentType: "application/json", muteHttpExceptions: true }])[0];
 				let m = readMeta(res);
 				if (m.code >= 200 && m.code < 300) {
-					let activeId = existingId || m.json?.id;
-					if (activeId) newMsgIds.push(activeId);
+					newMsgIds.push(m.json?.id || existingId);
 				} else if (canEdit) {
-					let pr = UrlFetchApp.fetch(`${h.discordWebhook}?wait=true`, { method: "POST", payload, contentType: "application/json", muteHttpExceptions: true });
+					let pr = chunkedFetchAll([{ url: `${h.discordWebhook}?wait=true`, method: "POST", payload, contentType: "application/json", muteHttpExceptions: true }])[0];
 					let pm = readMeta(pr);
 					if (pm.code >= 200 && pm.code < 300 && pm.json?.id) {
 						newMsgIds.push(pm.json.id);
-					} else {
-						newMsgIds.push(existingId);
 					}
-				} else if (existingId) {
-					newMsgIds.push(existingId);
 				}
 			} catch (e) {
 				console.error(`Discord Error: ${e.message}`);
 				if (existingId) newMsgIds.push(existingId);
 			}
 		});
-		db.msgMap[hash] = newMsgIds;
+		if (newMsgIds.length) db.msgMap[hash] = newMsgIds;
 	});
 	store.setProperty(key, JSON.stringify(db));
 }
@@ -222,15 +217,23 @@ function handleErrorAlerts(rows) {
 			let method = canEdit ? "PATCH" : "POST";
 			
 			let payload = JSON.stringify({
+				username: "Endfield Assistant",
+				avatar_url: "https://static.skport.com/image/common/20260403/f266b2fc7ac711dc39f89929ba254681.png",
 				content: `<@${app.myDiscordID}> ⚠️ **Found an error in the game account. Please check and fix it urgently.!**`,
-				embeds: [{ title: "🚨 Endfield - Account Error Report", color: 0xFF0000, fields: errors.map(e => ({ name: `👤 **${e.nickname} (${e.serverName})**`, value: `**Status:** ${e.status}\n**Details:** ${e.msg}`, inline: false })), timestamp: new Date().toISOString() }]
+				embeds: [{
+					title: "🚨 Endfield - Account Error Report",
+					color: 0xFF0000,
+					fields: errors.map(e => ({ name: `👤 **${e.nickname} (${e.serverName})**`, value: `**Status:** ${e.status}\n**Details:** ${e.msg}`, inline: false })),
+					footer: { text: "Updated on", icon_url: "https://assets.skport.com/assets/favicon.ico" },
+					timestamp: new Date().toISOString()
+				}]
 			});
 			
 			try {
 				let res = chunkedFetchAll([{ url, method, payload, contentType: "application/json", muteHttpExceptions: true }])[0];
 				let m = readMeta(res);
 				if (m.code < 300) {
-					if (!canEdit && m.json?.id) db.msgMap[hash] = m.json.id;
+					db.msgMap[hash] = m.json?.id || existingId;
 				} else if (canEdit) {
 					let newRes = chunkedFetchAll([{ url: `${target}?wait=true`, method: "POST", payload, contentType: "application/json", muteHttpExceptions: true }])[0];
 					let newM = readMeta(newRes);
