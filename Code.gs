@@ -26,7 +26,7 @@ const Settings = {
 	serverEowReset: [4, "03:00:00"],  //format [MDay, HH:MM:SS] *MDay start 0 = sunday ~~ 6 = saturday
 	serverBPCycleStart: "2026-10-15 11:00:00", //format "YYYY-MM-DD HH:MM:SS"
 	serverBPCycleEnd: [41, "05:00:00"], //format [Cycle, HH:MM:SS] *Cycle = number of days (normally 35, 42, 49 days)
-	discordColumn: 2, //max 3 col in 1 row
+	discordColumn: 1, //max 3 col in 1 row
 	discordUseEdit: true, //update with edit post
 	discordDailyPost: true, //new post everyday follow discordResetTime
 	discordProfilesPerPost: 6, //max profiles per discord post/message
@@ -53,7 +53,7 @@ const Settings = {
 		Connection: "keep-alive"
 	},
 	chunkSize: 20,
-	successCodes: { 0: "Check-in Successful", 10001: "Ready to checkin" },
+	successCodes: { 0: "✅ Check-in Successful", 10001: "✅ Ready to check-in" },
 	skipCodes: { 10000: "Cookie Expired", 10002: "User Not Logged In" },
 	skipError: { "HTML": "Invalid HTML Response / Cloudflare Error", 403: "Forbidden / Access Denied", 500: "Internal Server Error", 502: "Bad Gateway", 504: "Gateway Timeout" }
 };
@@ -83,7 +83,6 @@ function main() {
 	discordPost(results);
 	handleErrorAlerts(results);
 	saveWebData(results);
-	return results;
 }
 
 function formatResult(p, meta, i) {
@@ -101,7 +100,7 @@ function formatResult(p, meta, i) {
 	
 	if (isSuccess(j.code)) {
 		out.success = true;
-		out.status = `✅ ${Settings.successCodes[j.code]}`;
+		out.status = Settings.successCodes[j.code];
 		let ids = j.code === 0 ? [...new Set((j.data?.awardIds || []).map(a => {
 			let id = String(a?.id ?? a), res = j.data.resourceInfoMap?.[id];
 			if (res) db.items[id] = [`🎁 ${res.name} x${res.count}`, res.icon || ""];
@@ -254,7 +253,7 @@ const buildPlayerCard = (p, b = false) => {
 	if (!p?.playerCard?.base || !p?.playerCard?.dungeon) return "";
 	let store = PropertiesService.getScriptProperties(), key = "energy_db";
 	let { base: bs, domain: dl = [], dungeon: dg, bpSystem: bp = {}, dailyMission: dm = {}, weeklyMission: wm = {} } = p.playerCard;
-	let en = +dg.curStamina || 0, em = +dg.maxStamina || 0, ex = +dg.maxTs || 0;
+	let en = +dg.curStamina || 0, em = +dg.maxStamina || 0, ex = +dg.maxTs || 0, isdc = Settings.discordColumn === 1;
 	let db = JSON.parse(store.getProperty(key) || "{}");
 	let savedTs = +en >= (db[p?.skGameRole]?.energy ?? -1) ? (db[p?.skGameRole]?.maxTs ?? ex) : ex;
 	if (p?.playerCard?.dungeon) p.playerCard.dungeon.maxTs = savedTs;
@@ -268,6 +267,7 @@ const buildPlayerCard = (p, b = false) => {
 		let d = (((ts > 1e11 ? ts / 1e3 : ts) - Date.now() / 1e3) | 0), a = Math.abs(d), f = (n, u) => d > 0 ? `in ${n} ${u}${n > 1 ? "s" : ""}` : `${n} ${u}${n > 1 ? "s" : ""} ago`;
 		return a < 60 ? f(a, "sec") : a < 3600 ? f((a / 60) | 0, "min") : a < 864e2 ? f((a / 3600) | 0, "hour") : a < 6048e2 ? f((a / 864e2) | 0, "day") : a < 2592e3 ? f((a / 6048e2) | 0, "week") : a < 31536e3 ? f((a / 2592e3) | 0, "month") : f((a / 31536e3) | 0, "year");
 	};
+  
 
 	let shn = (n, d = 2, f = false) => {
 		let uIdx = 0, num = +n || 0, units = ["", "k", "m", "b", "t", "qa", "qi", "sx", "sp", "oc", "no", "dc"];
@@ -278,9 +278,9 @@ const buildPlayerCard = (p, b = false) => {
 	let aSum = 0, aMax = 0, aStr = "";
 	dl.forEach(d => {
 		let s = (d.settlements || []).filter(x => +x.level > 0), cur = s.reduce((a, x) => a + +x.remainMoney, 0), max = s.reduce((a, x) => a + +x.moneyMax, 0), fd = s.filter(x => +x.remainMoney === +x.moneyMax).length;
-		let remainList = s.map((x, i) => `\u2003\u2003[${i + 1}]: ${shn(x.remainMoney)}/${shn(x.moneyMax)}`).join("\n");
+		let remainList = s.map((x, i) => `\u2003\u2003[${i + 1}]: ${isdc ? `${x.name}\n\u2003\u2003\u2003— ${shn(x.remainMoney)}/${shn(x.moneyMax)} → ${((x.remainMoney/x.moneyMax)*100).toFixed(2)}%` : `${shn(x.remainMoney)}/${shn(x.moneyMax)}`}`).join("\n");
 		aSum += cur; aMax += max;
-		aStr += `\n\u2003→ ${d.name ? d.name.trim().split(/\s+/)[0] : ""} [${fd}/${s.length}]: ${s.length > 0 && fd === s.length ? wrap("Fulled") : `${max ? ((cur / max) * 100).toFixed(2) : "0.00"}%`}${remainList ? "\n" + remainList : ""}`;
+		aStr += `\n\u2003→ ${isdc ? d.name : d.name.trim().split(/\s+/)[0]} [${fd}/${s.length}]: ${s.length > 0 && fd === s.length ? wrap("Fulled") : `${max ? ((cur / max) * 100).toFixed(2) : "0.00"}%`}${remainList ? "\n" + remainList : ""}`;
 	});
 
 	let eStr = cap => en >= cap ? wrap("Fulled") : fmt(savedTs - (em - cap) * 432);
@@ -326,7 +326,7 @@ function saveWebData(res) {
 				weeklyMission: { score: p.weeklyMission.score, total: p.weeklyMission.total },
 				domain: (p.domain || []).map(dom => ({
 					name: dom.name,
-					settlements: (dom.settlements || []).filter(x => +x.level > 0).map(({ level, remainMoney, moneyMax }) => ({ level, remainMoney, moneyMax }))
+					settlements: (dom.settlements || []).filter(x => +x.level > 0).map(({ level, name, remainMoney, moneyMax }) => ({ level, name, remainMoney, moneyMax }))
 				}))
 			} : null
 		}))
