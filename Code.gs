@@ -179,13 +179,17 @@ function discordPost(rows, colCount = Settings.discordColumn || 2, useEdit = Set
 				let res = chunkedFetchAll([{ url, method, payload, contentType: "application/json", muteHttpExceptions: true }])[0];
 				let m = readMeta(res);
 				if (m.code >= 200 && m.code < 300) {
-					newMsgIds.push(m.json?.id || existingId);
+					newMsgIds.push(canEdit ? existingId : (m.json?.id || existingId));
 				} else if (canEdit) {
 					let pr = chunkedFetchAll([{ url: `${h.discordWebhook}?wait=true`, method: "POST", payload, contentType: "application/json", muteHttpExceptions: true }])[0];
 					let pm = readMeta(pr);
 					if (pm.code >= 200 && pm.code < 300 && pm.json?.id) {
 						newMsgIds.push(pm.json.id);
+					} else {
+						newMsgIds.push(existingId);
 					}
+				} else if (existingId) {
+					newMsgIds.push(existingId);
 				}
 			} catch (e) {
 				console.error(`Discord Error: ${e.message}`);
