@@ -251,40 +251,45 @@ function handleErrorAlerts(rows) {
 
 const buildPlayerCard = (p, b = false) => {
 	if (!p?.playerCard?.base || !p?.playerCard?.dungeon) return "";
-	let store = PropertiesService.getScriptProperties(), key = "energy_db";
+	let store = PropertiesService.getScriptProperties(), key = "energy_db", rgt = 432e3, bt = false;
 	let { base: bs, domain: dl = [], dungeon: dg, bpSystem: bp = {}, dailyMission: dm = {}, weeklyMission: wm = {} } = p.playerCard;
-	let en = +dg.curStamina || 0, em = +dg.maxStamina || 0, ex = +dg.maxTs || 0, isdc = Settings.discordColumn === 1;
-	let db = JSON.parse(store.getProperty(key) || "{}");
-	let savedTs = +en >= (db[p?.skGameRole]?.energy ?? -1) ? (db[p?.skGameRole]?.maxTs ?? ex) : ex;
+	let en = +dg.curStamina || 0, em = +dg.maxStamina || 0, dc = Settings.discordColumn === 1;
+	let db = JSON.parse(store.getProperty(key) || "{}"), cached = db[p?.skGameRole];
+	let baseTs = (+en >= (cached?.energy ?? -1) ? cached?.maxTs : null) || +dg.maxTs || Date.now();
+	let savedTs = (baseTs > 1e11 ? baseTs : baseTs * 1e3);
+	if (bt) savedTs = Math.floor(savedTs / 36e5) * 36e5 + Math.floor((savedTs % 36e5) / rgt) * rgt;
 	if (p?.playerCard?.dungeon) p.playerCard.dungeon.maxTs = savedTs;
-	if (p?.skGameRole) db[p.skGameRole] = { energy: +en, maxTs: savedTs };
+	if (p?.skGameRole) db[p.skGameRole] = { energy: en, maxTs: savedTs };
 	store.setProperty(key, JSON.stringify(db));
 
 	let wrap = t => b ? `\`${t}\`` : t;
 	let fmt = ts => {
 		if (!ts) return "-";
-		if (b) return `<t:${ts}:R>`;
-		let d = (((ts > 1e11 ? ts / 1e3 : ts) - Date.now() / 1e3) | 0), a = Math.abs(d), f = (n, u) => d > 0 ? `in ${n} ${u}${n > 1 ? "s" : ""}` : `${n} ${u}${n > 1 ? "s" : ""} ago`;
+		let sec = (ts > 1e11 ? ts / 1e3 : ts) | 0;
+		if (b) return `<t:${sec}:R>`;
+		let d = (sec - (Date.now() / 1e3)) | 0, 
+			a = Math.abs(d), 
+			f = (n, u) => d > 0 ? `in ${n} ${u}${n > 1 ? "s" : ""}` : `${n} ${u}${n > 1 ? "s" : ""} ago`;
 		return a < 60 ? f(a, "sec") : a < 3600 ? f((a / 60) | 0, "min") : a < 864e2 ? f((a / 3600) | 0, "hour") : a < 6048e2 ? f((a / 864e2) | 0, "day") : a < 2592e3 ? f((a / 6048e2) | 0, "week") : a < 31536e3 ? f((a / 2592e3) | 0, "month") : f((a / 31536e3) | 0, "year");
 	};
-  
 
 	let shn = (n, d = 2, f = false) => {
-		let uIdx = 0, num = +n || 0, units = ["", "k", "m", "b", "t", "qa", "qi", "sx", "sp", "oc", "no", "dc"];
-		while (num >= 1000 && uIdx < units.length - 1) { num /= 1000; uIdx++; }
-		return (f ? num.toFixed(d) : (Number.isInteger(num) ? num.toString() : num.toFixed(d).replace(/\.?0+$/, ""))) + units[uIdx];
+		let u = ["", "k", "m", "b", "t", "qa", "qi", "sx", "sp", "oc", "no", "dc"], idx = 0, num = +n || 0;
+		while (num >= 1e3 && idx < u.length - 1) { num /= 1e3; idx++; }
+		return (f ? num.toFixed(d) : (Number.isInteger(num) ? num : num.toFixed(d).replace(/\.?0+$/, ""))) + u[idx];
 	};
 
 	let aSum = 0, aMax = 0, aStr = "";
 	dl.forEach(d => {
 		let s = (d.settlements || []).filter(x => +x.level > 0), cur = s.reduce((a, x) => a + +x.remainMoney, 0), max = s.reduce((a, x) => a + +x.moneyMax, 0), fd = s.filter(x => +x.remainMoney === +x.moneyMax).length;
-		let remainList = s.map((x, i) => `\u2003\u2003[${i + 1}]: ${isdc ? `${x.name}\n\u2003\u2003\u2003— ${shn(x.remainMoney)}/${shn(x.moneyMax)} → ${((x.remainMoney/x.moneyMax)*100).toFixed(2)}%` : `${shn(x.remainMoney)}/${shn(x.moneyMax)}`}`).join("\n");
+		let rList = s.map((x, i) => `\u2003\u2003[${i + 1}]: ${dc ? `${x.name}\n\u2003\u2003\u2003— ${shn(x.remainMoney)}/${shn(x.moneyMax)} → ${((x.remainMoney/x.moneyMax)*100).toFixed(2)}%` : `${shn(x.remainMoney)}/${shn(x.moneyMax)}`}`).join("\n");
 		aSum += cur; aMax += max;
-		aStr += `\n\u2003→ ${isdc ? d.name : d.name.trim().split(/\s+/)[0]} [${fd}/${s.length}]: ${s.length > 0 && fd === s.length ? wrap("Fulled") : `${max ? ((cur / max) * 100).toFixed(2) : "0.00"}%`}${remainList ? "\n" + remainList : ""}`;
+		aStr += `\n\u2003→ ${dc ? d.name : d.name.trim().split(/\s+/)[0]} [${fd}/${s.length}]: ${s.length > 0 && fd === s.length ? wrap("Fulled") : `${max ? ((cur / max) * 100).toFixed(2) : "0.00"}%`}${rList ? "\n" + rList : ""}`;
 	});
 
-	let eStr = cap => en >= cap ? wrap("Fulled") : fmt(savedTs - (em - cap) * 432);
-	return `\n🔑 Login: ${fmt(bs.lastLoginTime)}\n🌸 Daily: ${dm.dailyActivation ?? 0}/${dm.maxDailyActivation ?? 0}\n📅 Weekly: ${wm.score ?? 0}/${wm.total ?? 0}\n🌟 BP: ${bp.curLevel ?? 0}/${bp.maxLevel ?? 0}\n⚡️ Energy: ${en}/${em}\n${[160, 200, 240, em].map(v => `\u2003→ ${v}: ${eStr(v)}`).join("\n")}\n🏠 AIC Funds: ${aMax ? ((aSum / aMax) * 100).toFixed(2) : "0.00"}%${aStr}`;
+	let eStr = cap => en >= cap ? wrap("Fulled") : fmt(savedTs + (cap - em) * rgt);
+
+	return `\n🔑 Login: ${fmt(bs.lastLoginTime * 1e3)}\n🌸 Daily: ${dm.dailyActivation ?? 0}/${dm.maxDailyActivation ?? 0}\n📅 Weekly: ${wm.score ?? 0}/${wm.total ?? 0}\n🌟 BP: ${bp.curLevel ?? 0}/${bp.maxLevel ?? 0}\n⚡️ Energy: ${en}/${em}\n${[160, 200, 240, em].map(v => `\u2003→ ${v}: ${eStr(v)}`).join("\n")}\n🏠 AIC Funds: ${aMax ? ((aSum / aMax) * 100).toFixed(2) : "0.00"}%${aStr}`;
 };
 
 function doGet(e) {
