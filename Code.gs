@@ -89,6 +89,7 @@ function formatResult(p, meta, i) {
 	let store = PropertiesService.getScriptProperties(), key = "reward_db";
 	let db = JSON.parse(store.getProperty(key) || '{"date":"","items":{},"accounts":{}}');
 	let cr = checkDailyReset(db.date, Settings.rewardResetTime);
+	let tr = n => typeof DomainLib !== 'undefined' ? (DomainLib?.translate?.(n) || n) : n;
 	if (cr.isReset) store.setProperty(key, JSON.stringify(db = { date: cr.date, items: {}, accounts: {} }));
 	
 	let out = { nickname: p.nickname || `#${i + 1}`, serverName: p.serverName || "", uid: p.uid, success: false, status: "", msg: "", raw: (meta?.rawText || "").slice(0, 2000), itemIcon_url: [], playerCard: p?.playerCard ?? {} };
@@ -103,7 +104,7 @@ function formatResult(p, meta, i) {
 		out.status = Settings.successCodes[j.code];
 		let ids = j.code === 0 ? [...new Set((j.data?.awardIds || []).map(a => {
 			let id = String(a?.id ?? a), res = j.data.resourceInfoMap?.[id];
-			if (res) db.items[id] = [`🎁 ${res.name} x${res.count}`, res.icon || ""];
+			if (res) db.items[id] = [`🎁 ${tr(res.name)} x${res.count}`, res.icon || ""];
 			return id;
 		}))] : (db.accounts[acc] || []);
 		if (j.code === 0) { db.accounts[acc] = ids; store.setProperty(key, JSON.stringify(db)); }
@@ -262,19 +263,17 @@ const buildPlayerCard = (p, b = false) => {
 	let baseTs = (+en >= (cached?.energy ?? -1) ? cached?.maxTs : null) || +dg.maxTs || Date.now();
 	let savedTs = baseTs > 1e11 ? baseTs : baseTs * 1e3;
 	if (bt) savedTs = Math.floor(savedTs / 36e5) * 36e5 + Math.floor((savedTs % 36e5) / rgt) * rgt;
-	if (p?.playerCard?.dungeon) p.playerCard.dungeon.maxTs = savedTs;
-	if (p?.skGameRole) db[p.skGameRole] = { energy: en, maxTs: savedTs };
+	p.playerCard.dungeon.maxTs = savedTs; db[p.skGameRole] = { energy: en, maxTs: savedTs };
 	store.setProperty(key, JSON.stringify(db));
 
-	let wrap = t => b ? `\`${t}\`` : t;
+	let wrap = t => b ? `\`${t}\`` : t, tr = n => typeof DomainLib !== 'undefined' ? (DomainLib?.translate?.(n) || n) : n;
 	let fmt = ts => {
 		if (!ts) return "-";
 		let sec = (ts > 1e11 ? ts / 1e3 : ts) | 0;
 		if (b) return `<t:${sec}:R>`;
-		let d = (sec - (Date.now() / 1e3)) | 0, a = Math.abs(d), f = (n, u) => d > 0 ? `in ${n} ${u}${n > 1 ? "s" : ""}` : `${n} ${u}${n > 1 ? "s" : ""} ago`;
+		let d = (sec - Date.now() / 1e3) | 0, a = Math.abs(d), f = (n, u) => d > 0 ? `in ${n} ${u}${n > 1 ? "s" : ""}` : `${n} ${u}${n > 1 ? "s" : ""} ago`;
 		return a < 60 ? f(a, "sec") : a < 3600 ? f((a / 60) | 0, "min") : a < 864e2 ? f((a / 3600) | 0, "hour") : a < 6048e2 ? f((a / 864e2) | 0, "day") : a < 2592e3 ? f((a / 6048e2) | 0, "week") : a < 31536e3 ? f((a / 2592e3) | 0, "month") : f((a / 31536e3) | 0, "year");
 	};
-
 	let shn = (n, d = 2, f = false) => {
 		let u = ["", "k", "m", "b", "t", "qa", "qi", "sx", "sp", "oc", "no", "dc"], idx = 0, num = +n || 0;
 		while (num >= 1e3 && idx < u.length - 1) { num /= 1e3; idx++; }
@@ -284,9 +283,10 @@ const buildPlayerCard = (p, b = false) => {
 	let aSum = 0, aMax = 0, aStr = "";
 	dl.forEach(d => {
 		let s = (d.settlements || []).filter(x => +x.level > 0), cur = s.reduce((a, x) => a + +x.remainMoney, 0), max = s.reduce((a, x) => a + +x.moneyMax, 0), fd = s.filter(x => +x.remainMoney === +x.moneyMax).length;
-		let rList = s.map((x, i) => `\u2003\u2003[${i + 1}]: ${dc ? `${x.name}\n\u2003\u2003\u2003— ${shn(x.remainMoney)}/${shn(x.moneyMax)} → ${((x.remainMoney/x.moneyMax)*100).toFixed(2)}%` : `${shn(x.remainMoney)}/${shn(x.moneyMax)}`}`).join("\n");
+		let rList = s.map((x, i) => `\u2003\u2003[${i + 1}]: ${dc ? `${tr(x.name)}\n\u2003\u2003\u2003— ${shn(x.remainMoney)}/${shn(x.moneyMax)} → ${((x.remainMoney/x.moneyMax)*100).toFixed(2)}%` : `${shn(x.remainMoney)}/${shn(x.moneyMax)}`}`).join("\n");
 		aSum += cur; aMax += max;
-		aStr += `\n\u2003→ ${dc ? d.name : d.name.trim().split(/\s+/)[0]} [${fd}/${s.length}]: ${s.length > 0 && fd === s.length ? wrap("Fulled") : `${max ? ((cur / max) * 100).toFixed(2) : "0.00"}%`}${rList ? "\n" + rList : ""}`;
+		let tName = tr(d.name), dName = dc ? tName : tName.trim().split(/\s+/)[0];
+		aStr += `\n\u2003→ ${dName} [${fd}/${s.length}]: ${s.length && fd === s.length ? wrap("Fulled") : `${max ? ((cur / max) * 100).toFixed(2) : "0.00"}%`}${rList ? "\n" + rList : ""}`;
 	});
 
 	let eStr = cap => en >= cap ? wrap("Fulled") : fmt(savedTs + (cap - em) * rgt);
@@ -319,28 +319,29 @@ function getNextResetTimestamps(st) {
 }
 
 function saveWebData(res) {
-	const s = PropertiesService.getScriptProperties(), u = Date.now();
-	const d = JSON.stringify({
-		updatedAt: u, serverReset: getNextResetTimestamps(Settings), tz: Session.getTimeZone(),
-		accounts: res.map(({nickname:n, uid:uid, serverName:sn, success:sc, status:st, msg:m, itemIcon_url:i, playerCard:p}) => ({
-			nickname: n, uid: uid, serverName: sn, success: sc, status: st, msg: m, itemIcon_url: i,
-			playerCard: p?.base ? {
-				base: { lastLoginTime: p.base.lastLoginTime, avatarUrl: p.base.avatarUrl },
-				dungeon: { curStamina: p.dungeon.curStamina, maxStamina: p.dungeon.maxStamina, maxTs: p.dungeon.maxTs },
-				bpSystem: { curLevel: p.bpSystem.curLevel, maxLevel: p.bpSystem.maxLevel },
-				dailyMission: { dailyActivation: p.dailyMission.dailyActivation, maxDailyActivation: p.dailyMission.maxDailyActivation },
-				weeklyMission: { score: p.weeklyMission.score, total: p.weeklyMission.total },
-				domain: (p.domain || []).map(dom => ({
-					name: dom.name,
-					settlements: (dom.settlements || []).filter(x => +x.level > 0).map(({ level, name, remainMoney, moneyMax }) => ({ level, name, remainMoney, moneyMax }))
-				}))
-			} : null
-		}))
-	});
-	const c = Math.ceil(d.length / 8000);
-	s.getKeys().forEach(k => (k.startsWith('web_chunk_') || k === 'web_display_data') && s.deleteProperty(k));
-	s.setProperty('web_meta', JSON.stringify({ chunks: c, updatedAt: u }));
-	for (let i = 0; i < c; i++) s.setProperty('web_chunk_' + i, d.substring(i * 8000, i * 8000 + 8000));
+  const s = PropertiesService.getScriptProperties(), u = Date.now();
+  const tr = n => typeof DomainLib !== 'undefined' ? (DomainLib?.translate?.(n) || n) : n;
+  const d = JSON.stringify({
+    updatedAt: u, serverReset: getNextResetTimestamps(Settings), tz: Session.getTimeZone(),
+    accounts: res.map(({nickname:n, uid:uid, serverName:sn, success:sc, status:st, msg:m, itemIcon_url:i, playerCard:p}) => ({
+      nickname: n, uid: uid, serverName: sn, success: sc, status: st, msg: m, itemIcon_url: i,
+      playerCard: p?.base ? {
+        base: { lastLoginTime: p.base.lastLoginTime, avatarUrl: p.base.avatarUrl },
+        dungeon: { curStamina: p.dungeon.curStamina, maxStamina: p.dungeon.maxStamina, maxTs: p.dungeon.maxTs },
+        bpSystem: { curLevel: p.bpSystem.curLevel, maxLevel: p.bpSystem.maxLevel },
+        dailyMission: { dailyActivation: p.dailyMission.dailyActivation, maxDailyActivation: p.dailyMission.maxDailyActivation },
+        weeklyMission: { score: p.weeklyMission.score, total: p.weeklyMission.total },
+        domain: (p.domain || []).map(dom => ({
+          name: tr(dom.name),
+          settlements: (dom.settlements || []).filter(x => +x.level > 0).map(({ level, name, remainMoney, moneyMax }) => ({ level, name: tr(name), remainMoney, moneyMax }))
+        }))
+      } : null
+    }))
+  });
+  const c = Math.ceil(d.length / 8000);
+  s.getKeys().forEach(k => (k.startsWith('web_chunk_') || k === 'web_display_data') && s.deleteProperty(k));
+  s.setProperty('web_meta', JSON.stringify({ chunks: c, updatedAt: u }));
+  for (let i = 0; i < c; i++) s.setProperty('web_chunk_' + i, d.substring(i * 8000, i * 8000 + 8000));
 }
 
 function getSkipReason(r) {
