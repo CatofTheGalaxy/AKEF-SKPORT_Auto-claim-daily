@@ -319,29 +319,29 @@ function getNextResetTimestamps(st) {
 }
 
 function saveWebData(res) {
-  const s = PropertiesService.getScriptProperties(), u = Date.now();
-  const tr = n => typeof DomainLib !== 'undefined' ? (DomainLib?.translate?.(n) || n) : n;
-  const d = JSON.stringify({
-    updatedAt: u, serverReset: getNextResetTimestamps(Settings), tz: Session.getTimeZone(),
-    accounts: res.map(({nickname:n, uid:uid, serverName:sn, success:sc, status:st, msg:m, itemIcon_url:i, playerCard:p}) => ({
-      nickname: n, uid: uid, serverName: sn, success: sc, status: st, msg: m, itemIcon_url: i,
-      playerCard: p?.base ? {
-        base: { lastLoginTime: p.base.lastLoginTime, avatarUrl: p.base.avatarUrl },
-        dungeon: { curStamina: p.dungeon.curStamina, maxStamina: p.dungeon.maxStamina, maxTs: p.dungeon.maxTs },
-        bpSystem: { curLevel: p.bpSystem.curLevel, maxLevel: p.bpSystem.maxLevel },
-        dailyMission: { dailyActivation: p.dailyMission.dailyActivation, maxDailyActivation: p.dailyMission.maxDailyActivation },
-        weeklyMission: { score: p.weeklyMission.score, total: p.weeklyMission.total },
-        domain: (p.domain || []).map(dom => ({
-          name: tr(dom.name),
-          settlements: (dom.settlements || []).filter(x => +x.level > 0).map(({ level, name, remainMoney, moneyMax }) => ({ level, name: tr(name), remainMoney, moneyMax }))
-        }))
-      } : null
-    }))
-  });
-  const c = Math.ceil(d.length / 8000);
-  s.getKeys().forEach(k => (k.startsWith('web_chunk_') || k === 'web_display_data') && s.deleteProperty(k));
-  s.setProperty('web_meta', JSON.stringify({ chunks: c, updatedAt: u }));
-  for (let i = 0; i < c; i++) s.setProperty('web_chunk_' + i, d.substring(i * 8000, i * 8000 + 8000));
+	const s = PropertiesService.getScriptProperties(), u = Date.now();
+	const tr = n => (typeof DomainLib !== 'undefined' && DomainLib?.translate?.(n)) || n;
+	const d = JSON.stringify({
+		updatedAt: u, serverReset: getNextResetTimestamps(Settings), tz: Session.getTimeZone(),
+		accounts: res.map(({ nickname: n, uid, serverName: sn, success: sc, status: st, msg: m, itemIcon_url: i, playerCard: p }) => ({
+			nickname: n, uid, serverName: sn, success: sc, status: st, msg: m, itemIcon_url: i,
+			playerCard: p?.base ? {
+				base: { lastLoginTime: p.base.lastLoginTime, avatarUrl: p.base.avatarUrl },
+				dungeon: { curStamina: p.dungeon.curStamina, maxStamina: p.dungeon.maxStamina, maxTs: p.dungeon.maxTs },
+				bpSystem: { curLevel: p.bpSystem.curLevel, maxLevel: p.bpSystem.maxLevel },
+				dailyMission: { dailyActivation: p.dailyMission.dailyActivation, maxDailyActivation: p.dailyMission.maxDailyActivation },
+				weeklyMission: { score: p.weeklyMission.score, total: p.weeklyMission.total },
+				domain: (p.domain || []).map(dom => ({
+					name: tr(dom.name),
+					settlements: (dom.settlements || []).filter(x => +x.level > 0).map(({ level, name, remainMoney, moneyMax }) => ({ level, name: tr(name), remainMoney, moneyMax }))
+				}))
+			} : null
+		}))
+	});
+	const c = Math.ceil(d.length / 8000);
+	s.getKeys().forEach(k => (k.startsWith('web_chunk_') || k === 'web_display_data') && s.deleteProperty(k));
+	s.setProperty('web_meta', JSON.stringify({ chunks: c, updatedAt: u }));
+	for (let i = 0; i < c; i++) s.setProperty('web_chunk_' + i, d.substring(i * 8000, (i + 1) * 8000));
 }
 
 function getSkipReason(r) {
