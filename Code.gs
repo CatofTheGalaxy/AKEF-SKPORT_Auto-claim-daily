@@ -268,7 +268,7 @@ const buildPlayerCard = (p, b = false) => {
 	db1[rKey] = { energy: en, maxTs: savedTs };
 	s.setProperty(k1, JSON.stringify(db1));
 
-	let wrap = t => b ? `\`${t}\`` : t, tr = n => DomainLib?.translate?.(n, "th") || n;
+	let wrap = t => b ? `\`${t}\`` : t, tr = n => typeof DomainLib !== 'undefined' ? (DomainLib?.translate?.(n) || n) : n;
 	let fmt = ts => {
 		if (!ts) return "-";
 		let sec = (ts > 1e11 ? ts / 1e3 : ts) | 0;
