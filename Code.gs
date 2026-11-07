@@ -256,10 +256,10 @@ function handleErrorAlerts(rows) {
 
 const buildPlayerCard = (p, b = false) => {
 	if (!p?.playerCard || !p?.skGameRole) return "";
-	let s = PropertiesService.getScriptProperties(), rKey = p.skGameRole, now = Date.now(), rgt = 432e3, bt = false, ema = false;
+	let s = PropertiesService.getScriptProperties(), rKey = p.skGameRole, now = Date.now(), rgt = 432e3, bt = false, ema = false, key = "card_db";
 	let { base: bs = {}, domain: dl = [], dungeon: dg = {}, bpSystem: bp = {}, dailyMission: dm = {}, weeklyMission: wm = {} } = p.playerCard;
 	let en = +dg.curStamina || 0, em = +dg.maxStamina || 0, dc = Settings.discordColumn === 1;
-	let db = JSON.parse(s.getProperty("card_db") || "{}"), acc = db[rKey] || { savedTs: now, energy: en, maxTs: +dg.maxTs || now, aic: {} };
+	let db = JSON.parse(s.getProperty(key) || "{}"), acc = db[rKey] || { savedTs: now, energy: en, maxTs: +dg.maxTs || now, aic: {} };
 	let oldSavedTs = acc.savedTs || now; acc.savedTs = now;
 	let baseTs = (+en >= (acc?.energy ?? -1) ? acc?.maxTs : null) || +dg.maxTs || now;
 	let savedTs = baseTs > 1e11 ? baseTs : baseTs * 1e3;
@@ -312,7 +312,7 @@ const buildPlayerCard = (p, b = false) => {
 		let dStatus = (sList.length && fd === sList.length) ? wrap("Fulled") : (max ? ((cur / max) * 100).toFixed(2) : "0.00") + "%";
 		aStr += `\n\u2003→ ${dName} [${fd}/${sList.length}]: ${dStatus}${rList ? "\n" + rList : ""}`;
 	});
-	db[rKey] = acc; s.setProperty("card_db", JSON.stringify(db));
+	db[rKey] = acc; s.setProperty(key, JSON.stringify(db));
 	let eStr = cap => en >= cap ? wrap("Fulled") : fmt(savedTs + (cap - em) * rgt);
 	return `\n🔑 Login: ${fmt(bs.lastLoginTime * 1e3)}\n🌸 Daily: ${dm.dailyActivation ?? 0}/${dm.maxDailyActivation ?? 0}\n📅 Weekly: ${wm.score ?? 0}/${wm.total ?? 0}\n🌟 BP: ${bp.curLevel ?? 0}/${bp.maxLevel ?? 0}\n⚡️ Energy: ${en}/${em}\n${[160, 200, 240, em].map(v => `\u2003→ ${v}: ${eStr(v)}`).join("\n")}\n🏠 AIC Funds: ${aMax ? ((aSum / aMax) * 100).toFixed(2) : "0.00"}%${aStr}`;
 };
