@@ -256,24 +256,21 @@ function handleErrorAlerts(rows) {
 
 const buildPlayerCard = (p, b = false) => {
 	if (!p?.playerCard || !p?.skGameRole) return "";
-	let s = PropertiesService.getScriptProperties(), rKey = p.skGameRole, now = Date.now(), rgt = 432e3, bt = false, ema = false, k1 = "energy_db", k2 = "aic_db";
+	let s = PropertiesService.getScriptProperties(), rKey = p.skGameRole, now = Date.now(), rgt = 432e3, bt = false, ema = false;
 	let { base: bs = {}, domain: dl = [], dungeon: dg = {}, bpSystem: bp = {}, dailyMission: dm = {}, weeklyMission: wm = {} } = p.playerCard;
 	let en = +dg.curStamina || 0, em = +dg.maxStamina || 0, dc = Settings.discordColumn === 1;
-
-	let db1 = JSON.parse(s.getProperty(k1) || "{}"), cached = db1[rKey] || {};
-	let baseTs = (+en >= (cached?.energy ?? -1) ? cached?.maxTs : null) || +dg.maxTs || now;
+	let db = JSON.parse(s.getProperty("card_db") || "{}"), acc = db[rKey] || { savedTs: now, energy: en, maxTs: +dg.maxTs || now, aic: {} };
+	let oldSavedTs = acc.savedTs || now; acc.savedTs = now;
+	let baseTs = (+en >= (acc?.energy ?? -1) ? acc?.maxTs : null) || +dg.maxTs || now;
 	let savedTs = baseTs > 1e11 ? baseTs : baseTs * 1e3;
 	if (bt) savedTs = Math.floor(savedTs / 36e5) * 36e5 + Math.floor((savedTs % 36e5) / rgt) * rgt;
-	if (dg.maxTs !== undefined) dg.maxTs = savedTs;
-	db1[rKey] = { energy: en, maxTs: savedTs };
-	s.setProperty(k1, JSON.stringify(db1));
-
+	if (dg.maxTs !== undefined) dg.maxTs = savedTs; acc.energy = en; acc.maxTs = savedTs;
 	let wrap = t => b ? `\`${t}\`` : t, tr = n => typeof DomainLib !== 'undefined' ? (DomainLib?.translate?.(n) || n) : n;
 	let fmt = ts => {
 		if (!ts) return "-";
 		let sec = (ts > 1e11 ? ts / 1e3 : ts) | 0;
 		if (b) return `<t:${sec}:R>`;
-		let d = (sec - now / 1e3) | 0, a = Math.abs(d), f = (n, u) => d > 0 ? `in ${n} ${u}${n > 1 ? "s" : ""}` : `${n} ${u}${n > 1 ? "s" : ""} ago`;
+		let d = ((sec - now / 1e3) | 0), a = Math.abs(d), f = (n, u) => d > 0 ? `in ${n} ${u}${n > 1 ? "s" : ""}` : `${n} ${u}${n > 1 ? "s" : ""} ago`;
 		return a < 60 ? f(a, "sec") : a < 3600 ? f((a / 60) | 0, "min") : a < 864e2 ? f((a / 3600) | 0, "hour") : a < 6048e2 ? f((a / 864e2) | 0, "day") : a < 2592e3 ? f((a / 6048e2) | 0, "week") : a < 31536e3 ? f((a / 2592e3) | 0, "month") : f((a / 31536e3) | 0, "year");
 	};
 	let shn = (n, d = 2) => {
@@ -281,33 +278,27 @@ const buildPlayerCard = (p, b = false) => {
 		while (num >= 1e3 && i < u.length - 1) { num /= 1e3; i++; }
 		return (Number.isInteger(num) ? num.toString() : num.toFixed(d).replace(/\.?0+$/, "")) + u[i];
 	};
-
-	let db2 = JSON.parse(s.getProperty(k2) || "{}"), accAic = db2[rKey] = db2[rKey] || {}, aSum = 0, aMax = 0, aStr = "";
+	let accAic = acc.aic || (acc.aic = {}), aSum = 0, aMax = 0, aStr = "", mins = (now - oldSavedTs) / 6e4;
 	dl.forEach((d, dIdx) => {
-		let domAic = accAic[dIdx] = accAic[dIdx] || {}, vIdx = 0;
+		let domAic = accAic[dIdx] || (accAic[dIdx] = {}), vIdx = 0;
 		d.settlements = (d.settlements || []).map(x => {
 			if (+x.level <= 0) return x;
 			let sIdx = vIdx++, isFull = +x.remainMoney >= +x.moneyMax, sum = +x.remainMoney, max = +x.moneyMax;
-			let old = domAic[sIdx] || {}, rate = old.rate || 0, maxTs = old.maxTs || null, tTs = old.savedTs || now;
-			
+			let old = domAic[sIdx] || {}, rate = old.rate || 0, maxTs = old.maxTs || null;
 			if (!isFull) {
-				let mins = old.savedTs ? (now - old.savedTs) / 6e4 : 0, diff = sum - (old.curMoney || 0);
+				let diff = sum - (old.curMoney || 0);
 				if (mins >= 1 && diff > 0) {
 					let calc = diff / mins;
 					rate = ema && rate > 0 ? (calc > rate + 3 ? rate + 1.2 : rate - 0.7 + calc * 0.3) : calc;
-					tTs = now;
-				} else if (!old.savedTs || diff < 0) {
-					tTs = now;
-				}
+				} else if (diff < 0) { rate = 0; }
 				maxTs = (rate > 0 && max - sum > 0) ? Math.floor(now + ((max - sum) / rate) * 6e4) : null;
-				domAic[sIdx] = { savedTs: tTs, curMoney: sum, rate, maxTs };
+				domAic[sIdx] = { curMoney: sum, rate, maxTs };
 			} else {
 				rate = 0; maxTs = null;
-				domAic[sIdx] = { savedTs: now, curMoney: sum, rate: 0, maxTs: null };
+				domAic[sIdx] = { curMoney: sum, rate: 0, maxTs: null };
 			}
 			return { ...x, rate: isFull ? 0 : rate, maxTs: isFull ? null : maxTs };
 		});
-
 		let sList = d.settlements.filter(x => +x.level > 0);
 		let cur = sList.reduce((a, x) => a + +x.remainMoney, 0), max = sList.reduce((a, x) => a + +x.moneyMax, 0), fd = sList.filter(x => +x.remainMoney === +x.moneyMax).length;
 		let rList = sList.map((x, i) => {
@@ -316,14 +307,12 @@ const buildPlayerCard = (p, b = false) => {
 			let remStr = `${shn(x.remainMoney)}/${shn(x.moneyMax)}`;
 			return dc ? `\u2003\u2003[${i + 1}]: ${tr(x.name)}\n\u2003\u2003\u2003— ${remStr} | ${status}` : `\u2003\u2003[${i + 1}]: ${remStr} | ${status}`;
 		}).join("\n");
-
 		aSum += cur; aMax += max;
 		let tName = tr(d.name), dName = dc ? tName : tName.trim().split(/\s+/)[0];
 		let dStatus = (sList.length && fd === sList.length) ? wrap("Fulled") : (max ? ((cur / max) * 100).toFixed(2) : "0.00") + "%";
 		aStr += `\n\u2003→ ${dName} [${fd}/${sList.length}]: ${dStatus}${rList ? "\n" + rList : ""}`;
 	});
-
-	s.setProperty(k2, JSON.stringify(db2));
+	db[rKey] = acc; s.setProperty("card_db", JSON.stringify(db));
 	let eStr = cap => en >= cap ? wrap("Fulled") : fmt(savedTs + (cap - em) * rgt);
 	return `\n🔑 Login: ${fmt(bs.lastLoginTime * 1e3)}\n🌸 Daily: ${dm.dailyActivation ?? 0}/${dm.maxDailyActivation ?? 0}\n📅 Weekly: ${wm.score ?? 0}/${wm.total ?? 0}\n🌟 BP: ${bp.curLevel ?? 0}/${bp.maxLevel ?? 0}\n⚡️ Energy: ${en}/${em}\n${[160, 200, 240, em].map(v => `\u2003→ ${v}: ${eStr(v)}`).join("\n")}\n🏠 AIC Funds: ${aMax ? ((aSum / aMax) * 100).toFixed(2) : "0.00"}%${aStr}`;
 };
