@@ -303,7 +303,7 @@ const buildPlayerCard = (p, b = false) => {
 			let isFull = +x.remainMoney >= +x.moneyMax, pct = ((+x.remainMoney / +x.moneyMax) * 100).toFixed(2) + "%";
 			let status = isFull ? wrap("Fulled") : (x.maxTs ? `+${x.rate.toFixed(1)}/m, ~${fmt(x.maxTs)}` : pct);
 			let remStr = `${shn(x.remainMoney)}/${shn(x.moneyMax)}`;
-			return dc ? `\u2003\u2003[${i + 1}]: ${tr(x.name)}\n\u2003\u2003\u2003— ${remStr} | ${status}` : `\u2003\u2003[${i + 1}]: ${remStr} | ${status}`;
+			return dc ? `\u2003\u2003[${i + 1}]: ${tr(x.name)}\n\u2003\u2003\u2003— ${remStr} | ${status}` : `\u2003\u2003[${i + 1}]: ${remStr}`;
 		}).join("\n");
 		aSum += cur; aMax += max;
 		let tName = tr(d.name), dName = dc ? tName : tName.trim().split(/\s+/)[0];
