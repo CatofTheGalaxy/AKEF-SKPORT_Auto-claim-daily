@@ -259,12 +259,10 @@ const buildPlayerCard = (p, b = false) => {
 	let s = PropertiesService.getScriptProperties(), rKey = p.skGameRole, now = Date.now(), rgt = 432e3, bt = false, ema = false, key = "card_db";
 	let { base: bs = {}, domain: dl = [], dungeon: dg = {}, bpSystem: bp = {}, dailyMission: dm = {}, weeklyMission: wm = {} } = p.playerCard;
 	let en = +dg.curStamina || 0, em = +dg.maxStamina || 0, dc = Settings.discordColumn === 1;
-	let db = JSON.parse(s.getProperty(key) || "{}"), acc = db[rKey] || { savedTs: now, energy: en, maxTs: +dg.maxTs || now, aic: {} };
-	let oldSavedTs = acc.savedTs || now; acc.savedTs = now;
-	let baseTs = (+en >= (acc?.energy ?? -1) ? acc?.maxTs : null) || +dg.maxTs || now;
-	let savedTs = baseTs > 1e11 ? baseTs : baseTs * 1e3;
-	if (bt) savedTs = Math.floor(savedTs / 36e5) * 36e5 + Math.floor((savedTs % 36e5) / rgt) * rgt;
-	if (dg.maxTs !== undefined) dg.maxTs = savedTs; acc.energy = en; acc.maxTs = savedTs;
+	let db = JSON.parse(s.getProperty(key) || "{}"), acc = db[rKey] || { updatedAt: now, sta: { curStamina: en, maxTs: +dg.maxTs || now }, aic: [] };
+	let oldUpd = acc.updatedAt || now; acc.updatedAt = now, baseTs = (+en >= (acc?.sta?.curStamina ?? -1) ? acc?.sta?.maxTs : null) || +dg.maxTs || now;
+	let savedTs = baseTs > 1e11 ? baseTs : baseTs * 1e3; if (bt) savedTs = Math.floor(savedTs / 36e5) * 36e5 + Math.floor((savedTs % 36e5) / rgt) * rgt;
+	if (dg.maxTs !== undefined) dg.maxTs = savedTs; acc.sta = { curStamina: en, maxTs: savedTs };
 	let wrap = t => b ? `\`${t}\`` : t, tr = n => typeof DomainLib !== 'undefined' ? (DomainLib?.translate?.(n) || n) : n;
 	let fmt = ts => {
 		if (!ts) return "-";
@@ -278,9 +276,9 @@ const buildPlayerCard = (p, b = false) => {
 		while (num >= 1e3 && i < u.length - 1) { num /= 1e3; i++; }
 		return (Number.isInteger(num) ? num.toString() : num.toFixed(d).replace(/\.?0+$/, "")) + u[i];
 	};
-	let accAic = acc.aic || (acc.aic = {}), aSum = 0, aMax = 0, aStr = "", mins = (now - oldSavedTs) / 6e4;
+	let accAic = Array.isArray(acc.aic) ? acc.aic : (acc.aic = []), aSum = 0, aMax = 0, aStr = "", mins = (now - oldUpd) / 6e4;
 	dl.forEach((d, dIdx) => {
-		let domAic = accAic[dIdx] || (accAic[dIdx] = {}), vIdx = 0;
+		let domAic = accAic[dIdx] || (accAic[dIdx] = []), vIdx = 0;
 		d.settlements = (d.settlements || []).map(x => {
 			if (+x.level <= 0) return x;
 			let sIdx = vIdx++, isFull = +x.remainMoney >= +x.moneyMax, sum = +x.remainMoney, max = +x.moneyMax;
