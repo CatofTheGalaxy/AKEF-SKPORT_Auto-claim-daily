@@ -10,6 +10,7 @@
 - Auto retry and skip when error
 - Design for google app auto trigger
 - Use "SK_OAUTH_CRED_KEY" cookie
+- *Optionnal* "DomainLib.gs" translate function for AIC and Item name
 
 **Setup Guide:**
 1. Sign in to your Google account. If you don’t have one, please create it first.
