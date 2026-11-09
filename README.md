@@ -1,10 +1,15 @@
 **Warning:** This process uses an Auth Cookie to log in to SKPORT.<br>
 **Note:** The reset time in the code is set according to UTC+7. Please set it according to your own region.<br>
 
-
-**Web App**<br>
-example: https://catofthegalaxy.github.io/
-
+**Feature:**
+- Auto sign-in and daily check *can be use multi profiles
+- In-game stat Last login, Daily/Weekly/BP progress, Sanity recover time, AIC money
+- Server reset time Daily, Weekly, Arsenal, BP, EoW *require to config to your server time
+- Discord notification check-in and in-game stat
+- Google Web App example https://catofthegalaxy.github.io/ *this is just redirect url
+- Auto retry and skip when error
+- Design for google app auto trigger
+- Use "SK_OAUTH_CRED_KEY" cookie
 
 **Setup Guide:**
 1. Sign in to your Google account. If you don’t have one, please create it first.
