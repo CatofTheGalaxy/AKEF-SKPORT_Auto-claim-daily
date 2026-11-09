@@ -2,13 +2,14 @@
 **Note:** The reset time in the code is set according to UTC+7. Please set it according to your own region.<br>
 
 **Feature:**
-- Auto sign-in and daily check *can be use multi profiles
-- In-game stat Last login, Daily/Weekly/BP progress, Sanity recover time, AIC money
+- Auto sign-in and daily check
+- Multi profiles support
+- In-game stat Last login, Daily/Weekly/BP progress, Sanity, AIC money
 - Server reset time Daily, Weekly, Arsenal, BP, EoW *require to config to your server time
 - Discord notification check-in, in-game stat, script error like cookie expired
 - Google Web App example https://catofthegalaxy.github.io/ *this is just redirect url
 - Auto retry and skip when error
-- Design for google app auto trigger
+- Design for google app auto trigger like trigger every 15~30 mins
 - Use "SK_OAUTH_CRED_KEY" cookie
 - *Optionnal* "DomainLib.gs" translate function for AIC and Item name
 
