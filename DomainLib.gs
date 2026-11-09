@@ -1,4 +1,5 @@
 const DomainLib = (() => {
+	let useTranslate = true, lang = "th";
 	const dict = {
 		"th": {
 			"Valley IV": "หุบเขา IV",
@@ -13,10 +14,16 @@ const DomainLib = (() => {
 	};
 
 	return {
-		translate: (name, lang = "th") => {
+		translate: (name, targetLang) => {
 			if (!name) return "";
 			let key = name.trim();
-			return dict[lang]?.[key] || name;
+			if (!useTranslate) return key;
+			return dict[targetLang || lang]?.[key] || key;
+		},
+		getConfig: () => ({ useTranslate, lang }),
+		setConfig: (cfg) => {
+			if (cfg.useTranslate !== undefined) useTranslate = !!cfg.useTranslate;
+			if (cfg.lang !== undefined) lang = cfg.lang;
 		},
 		getDict: () => dict
 	};
