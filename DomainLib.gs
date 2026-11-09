@@ -14,16 +14,11 @@ const DomainLib = (() => {
 	};
 
 	return {
-		translate: (name, targetLang) => {
-			if (!name) return "";
-			let key = name.trim();
-			if (!useTranslate) return key;
-			return dict[targetLang || lang]?.[key] || key;
-		},
+		translate: (n, t) => !n ? "" : (useTranslate ? (dict[t || lang]?.[n.trim()] || n.trim()) : n.trim()),
 		getConfig: () => ({ useTranslate, lang }),
-		setConfig: (cfg) => {
-			if (cfg.useTranslate !== undefined) useTranslate = !!cfg.useTranslate;
-			if (cfg.lang !== undefined) lang = cfg.lang;
+		setConfig: ({ useTranslate: u, lang: l }) => {
+			u !== undefined && (useTranslate = !!u);
+			l !== undefined && (lang = l);
 		},
 		getDict: () => dict
 	};
