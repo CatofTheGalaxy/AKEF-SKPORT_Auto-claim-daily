@@ -5,7 +5,7 @@
 - Auto sign-in and daily check *can be use multi profiles
 - In-game stat Last login, Daily/Weekly/BP progress, Sanity recover time, AIC money
 - Server reset time Daily, Weekly, Arsenal, BP, EoW *require to config to your server time
-- Discord notification check-in and in-game stat
+- Discord notification check-in, in-game stat, script error like cookie expired
 - Google Web App example https://catofthegalaxy.github.io/ *this is just redirect url
 - Auto retry and skip when error
 - Design for google app auto trigger
