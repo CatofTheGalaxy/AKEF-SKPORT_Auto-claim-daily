@@ -401,12 +401,12 @@ function generateSign(path, body, ts, token, plat, v) {
 
 function chunkedFetchAll(reqs, isValid = r => r.getResponseCode() >= 200 && r.getResponseCode() < 300) {
 	let { chunkSize: sz = 20, retry: { max = 5, initialBackoffMs: bf = 500, maxBackoffMs: mBf = 5000 } = {} } = Settings;
-	let err = () => ({ getContentText: () => "{}", getResponseCode: () => 500 });
+	let err = () => ({ getContentText: () => "{}", getResponseCode: () => 500 }), skip;
 	return Array.from({ length: Math.ceil(reqs.length / sz) }, (_, i) => reqs.slice(i * sz, (i + 1) * sz)).flatMap(chk => {
 		let res; try { res = UrlFetchApp.fetchAll(chk); } catch (e) { console.error(`Batch Error: ${e.message}`); res = chk.map(err); }
 		return res.map((r, j) => {
 			for (let a = 0, rq = chk[j], d; a < max && !isValid(r); a++) {
-				if (getSkipReason(r)) break;
+				if (skip = getSkipReason(r)) { console.error(`Skipped (${rq.url || "Req"}): ${skip}`); break; }
 				console.warn(`[Retry ${a+1}/${max}] ${rq.url || "Req"} (Status: ${r.getResponseCode()}) in ${d = Math.min(bf << a, mBf)}ms`);
 				Utilities.sleep(d);
 				try { r = UrlFetchApp.fetch(rq.url, rq); } catch (e) { console.error(`Fetch Error: ${e.message}`); r = err(); }
