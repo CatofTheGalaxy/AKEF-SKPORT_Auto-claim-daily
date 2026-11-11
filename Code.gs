@@ -375,8 +375,8 @@ function saveWebData(res) {
 function getSkipReason(r) {
 	if (!r) return null;
 	let c = Number(r.getResponseCode()), t = r.getContentText() || "", j = parseJson(t);
-	if (j && j.code !== undefined) return isSuccess(j.code) ? null : Settings.skipCodes[j.code];
-	return /<!doctype|<html|Cloudflare/i.test(t) ? `HTML Error (Preview: ${t.slice(0, 50).trim()}...)` : Settings.skipError[c] || null;
+	if (j && j.code !== undefined) return isSuccess(j.code) ? null : (Settings.skipCodes[j.code] ? `JSON [${j.code}]: ${Settings.skipCodes[j.code]}` : null);
+	return /<!doctype|<html|Cloudflare/i.test(t) ? `Cloudflare / HTML Blocked (Preview: ${t.slice(0, 50).trim()}...)` : Settings.skipError[c] ? `HTTP [${c}]: ${Settings.skipError[c]}` : null;
 }
 const isSuccess = code => typeof Settings.successCodes[code] !== 'undefined';
 const isValidResp = r => { let m = readMeta(r); return (m?.json && isSuccess(m.json.code)) || getSkipReason(r) !== null; };
@@ -399,12 +399,13 @@ function generateSign(path, body, ts, token, plat, v) {
 
 function chunkedFetchAll(reqs, isValid = r => r.getResponseCode() >= 200 && r.getResponseCode() < 300) {
 	let { chunkSize: sz = 20, retry: { max = 5, initialBackoffMs: bf = 500, maxBackoffMs: mBf = 5000 } = {} } = Settings;
-	let err = () => ({ getContentText: () => "{}", getResponseCode: () => 500 }), skip;
+	let err = () => ({ getContentText: () => "{}", getResponseCode: () => 500 });
 	return Array.from({ length: Math.ceil(reqs.length / sz) }, (_, i) => reqs.slice(i * sz, (i + 1) * sz)).flatMap(chk => {
 		let res; try { res = UrlFetchApp.fetchAll(chk); } catch (e) { console.error(`Batch Error: ${e.message}`); res = chk.map(err); }
 		return res.map((r, j) => {
 			for (let a = 0, rq = chk[j], d; a < max && !isValid(r); a++) {
-				if (skip = getSkipReason(r)) { console.error(`Skipped (${rq.url || "Req"}): ${skip}`); break; }
+				let skip = getSkipReason(r);
+				if (skip) { console.error(`Skipped (${rq.url || "Req"}): ${skip}`); break; }
 				console.warn(`[Retry ${a+1}/${max}] ${rq.url || "Req"} (Status: ${r.getResponseCode()}) in ${d = Math.min(bf << a, mBf)}ms`);
 				Utilities.sleep(d);
 				try { r = UrlFetchApp.fetch(rq.url, rq); } catch (e) { console.error(`Fetch Error: ${e.message}`); r = err(); }
