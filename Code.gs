@@ -94,25 +94,26 @@ function formatResult(p, meta, i) {
 	
 	let out = { nickname: p.nickname || `#${i + 1}`, serverName: p.serverName || "", uid: p.uid || "", skGameRole: p.skGameRole || "", success: false, status: "", msg: "", raw: (meta?.rawText || "").slice(0, 2000), itemIcon_url: [], playerCard: p?.playerCard ?? {} };
 	let skip = getSkipReason(meta?.resp);
-	if (skip) return (out.status = `❌ ${skip}`, out.msg = meta?.json?.message || skip, console.log(`[${out.nickname} (${out.serverName})]\n🆔 ${out.uid}\n${out.status}\n${out.msg}`), out);
-
-	if (!meta?.json) return (out.status = "💥 Invalid JSON", out.msg = meta?.rawText || "No response", out);
-	let j = meta.json, acc = p.skGameRole || `#${i + 1}`;
 	
-	if (isSuccess(j.code)) {
-		out.success = true;
-		out.status = Settings.successCodes[j.code];
-		let ids = j.code === 0 ? [...new Set((j.data?.awardIds || []).map(a => {
-			let id = String(a?.id ?? a), res = j.data.resourceInfoMap?.[id];
-			if (res) db.items[id] = [`🎁 ${tr(res.name)} x${res.count}`, res.icon || ""];
-			return id;
-		}))] : (db.accounts[acc] || []);
-		if (j.code === 0) { db.accounts[acc] = ids; store.setProperty(key, JSON.stringify(db)); }
-		out.msg = ids.length ? ids.map(id => db.items[id]?.[0]).join("\n") : "🎁 Successfully claimed";
-		out.itemIcon_url = ids.map(id => db.items[id]?.[1]).filter(Boolean);
+	if (skip) {
+		out.status = `❌ ${skip}`; out.msg = meta?.json?.message || skip;
+	} else if (!meta?.json) {
+		out.status = "💥 Invalid JSON"; out.msg = meta?.rawText ? `HTML Error (Preview: ${meta.rawText.slice(0, 50).trim()}...)` : "No response";
 	} else {
-		out.status = `❌ Error (Code: ${j.code})`;
-		out.msg = j.message || "Unknown Error";
+		let j = meta.json, acc = p.skGameRole || `#${i + 1}`;
+		if (isSuccess(j.code)) {
+			out.success = true; out.status = Settings.successCodes[j.code];
+			let ids = j.code === 0 ? [...new Set((j.data?.awardIds || []).map(a => {
+				let id = String(a?.id ?? a), res = j.data.resourceInfoMap?.[id];
+				if (res) db.items[id] = [`🎁 ${tr(res.name)} x${res.count}`, res.icon || ""];
+				return id;
+			}))] : (db.accounts[acc] || []);
+			if (j.code === 0) { db.accounts[acc] = ids; store.setProperty(key, JSON.stringify(db)); }
+			out.msg = ids.length ? ids.map(id => db.items[id]?.[0]).join("\n") : "🎁 Successfully claimed";
+			out.itemIcon_url = ids.map(id => db.items[id]?.[1]).filter(Boolean);
+		} else {
+			out.status = `❌ Error (Code: ${j.code})`; out.msg = j.message || "Unknown Error";
+		}
 	}
 	console.log(`[${out.nickname} (${out.serverName})]\n🆔 ${out.uid}\n${out.status}\n${out.msg}${typeof buildPlayerCard !== 'undefined' ? buildPlayerCard(p) : ""}`);
 	return out;
@@ -373,12 +374,9 @@ function saveWebData(res) {
 
 function getSkipReason(r) {
 	if (!r) return null;
-	let code = r.getResponseCode(), text = r.getContentText() || "", j = parseJson(text);
-	if (j && typeof j.code !== 'undefined') {
-		if (isSuccess(j.code)) return null;
-		if (Settings.skipCodes[j.code]) return Settings.skipCodes[j.code];
-	}
-	return /<!doctype|<html|Cloudflare/i.test(text) ? Settings.skipError["HTML"] : Settings.skipError[code] || null;
+	let c = Number(r.getResponseCode()), t = r.getContentText() || "", j = parseJson(t);
+	if (j && j.code !== undefined) return isSuccess(j.code) ? null : Settings.skipCodes[j.code];
+	return /<!doctype|<html|Cloudflare/i.test(t) ? `HTML Error (Preview: ${t.slice(0, 50).trim()}...)` : Settings.skipError[c] || null;
 }
 const isSuccess = code => typeof Settings.successCodes[code] !== 'undefined';
 const isValidResp = r => { let m = readMeta(r); return (m?.json && isSuccess(m.json.code)) || getSkipReason(r) !== null; };
