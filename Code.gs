@@ -92,8 +92,7 @@ function formatResult(p, meta, i) {
 	let tr = n => typeof DomainLib !== 'undefined' ? (DomainLib?.translate?.(n) || n) : n;
 	if (cr.isReset) store.setProperty(key, JSON.stringify(db = { date: cr.date, items: {}, accounts: {} }));
 	
-	let out = { nickname: p.nickname || `#${i + 1}`, serverName: p.serverName || "", uid: p.uid || "", skGameRole: p.skGameRole || "", success: false, status: "", msg: "", raw: (meta?.rawText || "").slice(0, 2000), itemIcon_url: [], playerCard: p?.playerCard ?? {} };
-	let skip = getSkipReason(meta?.resp);
+	let out = { nickname: p.nickname || `#${i + 1}`, serverName: p.serverName || "", uid: p.uid || "", skGameRole: p.skGameRole || "", success: false, status: "", msg: "", raw: (meta?.rawText || "").slice(0, 2000), itemIcon_url: [], playerCard: p?.playerCard ?? {} }, skip = getSkipReason(meta?.resp);
 	
 	if (skip) {
 		out.status = `❌ ${skip}`; out.msg = meta?.json?.message || skip;
@@ -375,8 +374,8 @@ function saveWebData(res) {
 function getSkipReason(r) {
 	if (!r) return null;
 	let c = Number(r.getResponseCode()), t = r.getContentText() || "", j = parseJson(t);
-	if (j && j.code !== undefined) return isSuccess(j.code) ? null : (Settings.skipCodes[j.code] ? `JSON [${j.code}]: ${Settings.skipCodes[j.code]}` : null);
-	return /<!doctype|<html|Cloudflare/i.test(t) ? `Cloudflare / HTML Blocked (Preview: ${t.slice(0, 50).trim()}...)` : Settings.skipError[c] ? `HTTP [${c}]: ${Settings.skipError[c]}` : null;
+	if (j && j.code !== undefined) return isSuccess(j.code) ? null : Settings.skipCodes[j.code];
+	return /<!doctype|<html|Cloudflare/i.test(t) ? Settings.skipError["HTML"] : Settings.skipError[c] || null;
 }
 const isSuccess = code => typeof Settings.successCodes[code] !== 'undefined';
 const isValidResp = r => { let m = readMeta(r); return (m?.json && isSuccess(m.json.code)) || getSkipReason(r) !== null; };
