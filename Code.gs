@@ -14,50 +14,6 @@ const discordApp = [
 	}
 ];
 
-const Settings = {
-	platform: "3",
-	vName: "1.0.0",
-	appCode: "endfield",
-	discordResetTime: "23:00:00", //format "HH:MM:SS" *must same rewardResetTime and set when discordDailyPost = true
-	rewardResetTime: "23:00:00", //format "HH:MM:SS"
-	serverDailyReset: "03:00:00", //format "HH:MM:SS"
-	serverWeelyReset: [1, "03:00:00"], //format [MDay, HH:MM:SS] *MDay start 0 = sunday ~~ 6 = saturday
-	serverArsenalReset: [3, "11:00:00"], //format [MDay, HH:MM:SS] *MDay start 0 = sunday ~~ 6 = saturday
-	serverEowReset: [4, "03:00:00"],  //format [MDay, HH:MM:SS] *MDay start 0 = sunday ~~ 6 = saturday
-	serverBPCycleStart: "2026-10-15 11:00:00", //format "YYYY-MM-DD HH:MM:SS"
-	serverBPCycleEnd: [41, "05:00:00"], //format [Cycle, HH:MM:SS] *Cycle = number of days (normally 35, 42, 49 days)
-	discordColumn: 1, //max 3 col in 1 row
-	discordUseEdit: true, //update with edit post
-	discordDailyPost: true, //new post everyday follow discordResetTime
-	discordProfilesPerPost: 6, //max profiles per discord post/message
-	retry: { max: 5, initialBackoffMs: 500, maxBackoffMs: 5000 },
-	endpoints: {
-		refresh: "https://zonai.skport.com/web/v1/auth/refresh",
-		binding: "https://zonai.skport.com/api/v1/game/player/binding",
-		attendance: "https://zonai.skport.com/web/v1/game/endfield/attendance",
-		card: "https://zonai.skport.com/api/v1/game/endfield/card/detail"
-	},
-	userAgent: "Mozilla/5.0",
-	defaultHeaders: {
-		accept: "application/json, text/plain, */*",
-		origin: "https://game.skport.com",
-		referer: "https://game.skport.com/"
-	},
-	baseAttHeaders: {
-		"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-		Accept: "*/*",
-		"Accept-Language": "en-US,en;q=0.9",
-		"Content-Type": "application/json",
-		"sk-language": "en",
-		Origin: "https://game.skport.com",
-		Connection: "keep-alive"
-	},
-	chunkSize: 20,
-	successCodes: { 0: "✅ Check-in Successful", 10001: "✅ Ready to check-in" },
-	skipCodes: { 10000: "Cookie Expired", 10002: "User Not Logged In" },
-	skipError: { "HTML": "Invalid HTML Response / Cloudflare Error", 403: "Forbidden / Access Denied", 500: "Internal Server Error", 502: "Bad Gateway", 504: "Gateway Timeout" }
-};
-
 function main() {
 	if (!profiles.length) return [];
 	let tokens = chunkedFetchAll(profiles.map(buildTokenRefresh), r => !!readMeta(r)?.json?.data?.token || getSkipReason(r) !== null).map(r => readMeta(r)?.json?.data?.token || "");
@@ -286,8 +242,7 @@ const buildPlayerCard = (p, b = false) => {
 			if (!isFull) {
 				let diff = sum - (old.curMoney || 0);
 				if (mins >= 1 && diff > 0) {
-					let calc = diff / mins;
-					rate = ema && rate > 0 ? (calc > rate + 3 ? rate + 1.2 : rate - 0.7 + calc * 0.3) : calc;
+					let calc = diff / mins; rate = ema && rate > 0 ? (calc > rate + 3 ? rate + 1.2 : rate - 0.7 + calc * 0.3) : calc;
 				} else if (diff < 0) { rate = 0; }
 				maxTs = (rate > 0 && max - sum > 0) ? Math.floor(now + ((max - sum) / rate) * 6e4) : null;
 				domAic[sIdx] = { curMoney: sum, rate, maxTs };
@@ -301,7 +256,7 @@ const buildPlayerCard = (p, b = false) => {
 		let cur = sList.reduce((a, x) => a + +x.remainMoney, 0), max = sList.reduce((a, x) => a + +x.moneyMax, 0), fd = sList.filter(x => +x.remainMoney === +x.moneyMax).length;
 		let rList = sList.map((x, i) => {
 			let isFull = +x.remainMoney >= +x.moneyMax, pct = ((+x.remainMoney / +x.moneyMax) * 100).toFixed(2) + "%";
-			let status = isFull ? wrap("Fulled") : (x.maxTs ? `+${x.rate.toFixed(1)}/m, ~${fmt(x.maxTs)}` : pct);
+			let status = isFull ? wrap("Fulled") : (x.maxTs ? `+${shn(x.rate)}/m, ~${fmt(x.maxTs)}` : pct);
 			let remStr = `${shn(x.remainMoney)}/${shn(x.moneyMax)}`;
 			return dc ? `\u2003\u2003[${i + 1}]: ${tr(x.name)}\n\u2003\u2003\u2003— ${remStr} | ${status}` : `\u2003\u2003[${i + 1}]: ${remStr}`;
 		}).join("\n");
