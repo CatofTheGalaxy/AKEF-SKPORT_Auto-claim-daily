@@ -404,8 +404,7 @@ function chunkedFetchAll(reqs, isValid = r => r.getResponseCode() >= 200 && r.ge
 			for (let a = 0, rq = chk[j], code, txt, skip; a < max && !isValid(r); a++) {
 				code = r.getResponseCode(); txt = r.getContentText() || "";
 				if (code !== 0 && code < 500 && !txt.includes("Address unavailable") && !txt.includes("DNS") && (skip = getSkipReason(r))) { console.error(`Skipped (${rq.url || "Req"}): ${skip}`); break; }
-				const d = Math.min(bf * 2 ** a, mBf);
-				console.warn(`[Retry ${a + 1}/${max}] ${rq.url || "Req"} (Status: ${code}) in ${d}ms`); Utilities.sleep(d);
+				const d = Math.min(bf * 2 ** a, mBf); console.warn(`[Retry ${a + 1}/${max}] ${rq.url || "Req"} (Status: ${code}) in ${d}ms`); Utilities.sleep(d);
 				try { r = UrlFetchApp.fetch(rq.url, rq); } catch (e) { console.error(`Fetch Error: ${e.message}`); r = err(e.message); }
 			}
 			return r;
