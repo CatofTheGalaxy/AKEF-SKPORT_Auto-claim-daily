@@ -14,6 +14,50 @@ const discordApp = [
 	}
 ];
 
+const Settings = {
+	platform: "3",
+	vName: "1.0.0",
+	appCode: "endfield",
+	discordResetTime: "23:00:00", //format "HH:MM:SS" *must same rewardResetTime and set when discordDailyPost = true
+	rewardResetTime: "23:00:00", //format "HH:MM:SS"
+	serverDailyReset: "03:00:00", //format "HH:MM:SS"
+	serverWeelyReset: [1, "03:00:00"], //format [MDay, HH:MM:SS] *MDay start 0 = sunday ~~ 6 = saturday
+	serverArsenalReset: [3, "11:00:00"], //format [MDay, HH:MM:SS] *MDay start 0 = sunday ~~ 6 = saturday
+	serverEowReset: [4, "03:00:00"],  //format [MDay, HH:MM:SS] *MDay start 0 = sunday ~~ 6 = saturday
+	serverBPCycleStart: "2026-10-15 11:00:00", //format "YYYY-MM-DD HH:MM:SS"
+	serverBPCycleEnd: [41, "05:00:00"], //format [Cycle, HH:MM:SS] *Cycle = number of days (normally 35, 42, 49 days)
+	discordColumn: 1, //max 3 col in 1 row
+	discordUseEdit: true, //update with edit post
+	discordDailyPost: true, //new post everyday follow discordResetTime
+	discordProfilesPerPost: 6, //max profiles per discord post/message
+	retry: { max: 5, initialBackoffMs: 500, maxBackoffMs: 5000 },
+	endpoints: {
+		refresh: "https://zonai.skport.com/web/v1/auth/refresh",
+		binding: "https://zonai.skport.com/api/v1/game/player/binding",
+		attendance: "https://zonai.skport.com/web/v1/game/endfield/attendance",
+		card: "https://zonai.skport.com/api/v1/game/endfield/card/detail"
+	},
+	userAgent: "Mozilla/5.0",
+	defaultHeaders: {
+		accept: "application/json, text/plain, */*",
+		origin: "https://game.skport.com",
+		referer: "https://game.skport.com/"
+	},
+	baseAttHeaders: {
+		"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+		Accept: "*/*",
+		"Accept-Language": "en-US,en;q=0.9",
+		"Content-Type": "application/json",
+		"sk-language": "en",
+		Origin: "https://game.skport.com",
+		Connection: "keep-alive"
+	},
+	chunkSize: 20,
+	successCodes: { 0: "✅ Check-in Successful", 10001: "✅ Ready to check-in" },
+	skipCodes: { 10000: "Cookie Expired", 10002: "User Not Logged In" },
+	skipError: { "HTML": "Invalid HTML Response / Cloudflare Error", 403: "Forbidden / Access Denied", 500: "Internal Server Error", 502: "Bad Gateway", 504: "Gateway Timeout" }
+};
+
 function main() {
 	if (!profiles.length) return [];
 	let tokens = chunkedFetchAll(profiles.map(buildTokenRefresh), r => !!readMeta(r)?.json?.data?.token || getSkipReason(r) !== null).map(r => readMeta(r)?.json?.data?.token || "");
