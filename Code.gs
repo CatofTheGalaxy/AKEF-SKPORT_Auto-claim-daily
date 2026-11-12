@@ -396,17 +396,17 @@ function generateSign(path, body, ts, token, plat, v) {
 }
 
 function chunkedFetchAll(reqs, isValid = r => r.getResponseCode() >= 200 && r.getResponseCode() < 300) {
-	let { chunkSize: sz = 20, retry: { max = 5, initialBackoffMs: bf = 500, maxBackoffMs: mBf = 5000 } = {} } = Settings;
-	let err = () => ({ getContentText: () => "{}", getResponseCode: () => 500 });
+	const { chunkSize: sz = 20, retry: { max = 5, initialBackoffMs: bf = 500, maxBackoffMs: mBf = 5000 } = {} } = Settings;
+	const err = m => ({ getContentText: () => JSON.stringify({ error: m }), getResponseCode: () => 0 });
 	return Array.from({ length: Math.ceil(reqs.length / sz) }, (_, i) => reqs.slice(i * sz, (i + 1) * sz)).flatMap(chk => {
-		let res; try { res = UrlFetchApp.fetchAll(chk); } catch (e) { console.error(`Batch Error: ${e.message}`); res = chk.map(err); }
+		let res; try { res = UrlFetchApp.fetchAll(chk); } catch (e) { console.error(`Batch Error: ${e.message}`); res = chk.map(() => err(e.message)); }
 		return res.map((r, j) => {
-			for (let a = 0, rq = chk[j], d; a < max && !isValid(r); a++) {
-				let skip = getSkipReason(r);
-				if (skip) { console.error(`Skipped (${rq.url || "Req"}): ${skip}`); break; }
-				console.warn(`[Retry ${a+1}/${max}] ${rq.url || "Req"} (Status: ${r.getResponseCode()}) in ${d = Math.min(bf << a, mBf)}ms`);
-				Utilities.sleep(d);
-				try { r = UrlFetchApp.fetch(rq.url, rq); } catch (e) { console.error(`Fetch Error: ${e.message}`); r = err(); }
+			for (let a = 0, rq = chk[j], code, txt, skip; a < max && !isValid(r); a++) {
+				code = r.getResponseCode(); txt = r.getContentText() || "";
+				if (code !== 0 && code < 500 && !txt.includes("Address unavailable") && !txt.includes("DNS") && (skip = getSkipReason(r))) { console.error(`Skipped (${rq.url || "Req"}): ${skip}`); break; }
+				const d = Math.min(bf * 2 ** a, mBf);
+				console.warn(`[Retry ${a + 1}/${max}] ${rq.url || "Req"} (Status: ${code}) in ${d}ms`); Utilities.sleep(d);
+				try { r = UrlFetchApp.fetch(rq.url, rq); } catch (e) { console.error(`Fetch Error: ${e.message}`); r = err(e.message); }
 			}
 			return r;
 		});
