@@ -122,7 +122,6 @@ function discordPost(rows, colCount = Settings.discordColumn || 2, useEdit = Set
 	const store = PropertiesService.getScriptProperties(), key = "discord_db";
 	const hooks = discordApp.filter(o => o.notify && o.discordWebhook);
 	const k = u => Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, u).map(b => (b + 256).toString(16).slice(-2)).join("");
-	
 	let db = JSON.parse(store.getProperty(key) || '{"date":"","msgMap":{}}');
 	const cr = checkDailyReset(db.date, Settings.discordResetTime || "00:00:00");
 	if (!useEdit || (useEdit && Settings.discordDailyPost && cr.isReset)) db = { date: cr.date, msgMap: {} };
@@ -146,10 +145,7 @@ function discordPost(rows, colCount = Settings.discordColumn || 2, useEdit = Set
 
 	hooks.forEach(h => {
 		const hash = k(h.discordWebhook);
-		let savedMap = db.msgMap[hash];
-		let msgIds = Array.isArray(savedMap) ? savedMap : (savedMap ? [savedMap] : []);
-		let newMsgIds = [];
-
+		let savedMap = db.msgMap[hash], msgIds = Array.isArray(savedMap) ? savedMap : (savedMap ? [savedMap] : []), newMsgIds = [];
 		rowChunks.forEach((chunk, idx) => {
 			const embed = {
 				title: `📝 Endfield - Report${rowChunks.length > 1 ? ` (${idx + 1}/${rowChunks.length})` : ""} [<t:${nowTs()}:d>]`,
@@ -170,14 +166,13 @@ function discordPost(rows, colCount = Settings.discordColumn || 2, useEdit = Set
 				timestamp: new Date().toISOString()
 			};
 
-			const existingId = msgIds[idx];
-			const canEdit = useEdit && !!existingId;
+			const existingId = msgIds[idx], canEdit = useEdit && !!existingId;
 			const url = canEdit ? `${h.discordWebhook}/messages/${existingId}` : `${h.discordWebhook}?wait=true`;
 			const method = canEdit ? "PATCH" : "POST";
 			const payload = JSON.stringify({ username: "Endfield Assistant", avatar_url: "https://static.skport.com/image/common/20260403/f266b2fc7ac711dc39f89929ba254681.png", embeds: [embed] });
 
 			try {
-				let res = chunkedFetchAll([{ url, method, payload, contentType: "application/json", muteHttpExceptions: true }])[0];
+				let res = chunkedFetchAll([{ url, method, payload, contentType: "application/json", muteHttpExceptions: true, skipRetryCodes: [404] }])[0];
 				let m = readMeta(res);
 				if (m.code >= 200 && m.code < 300) {
 					newMsgIds.push(canEdit ? existingId : (m.json?.id || existingId));
@@ -228,7 +223,7 @@ function handleErrorAlerts(rows) {
 			});
 			
 			try {
-				let res = chunkedFetchAll([{ url, method, payload, contentType: "application/json", muteHttpExceptions: true }])[0];
+				let res = chunkedFetchAll([{ url, method, payload, contentType: "application/json", muteHttpExceptions: true, skipRetryCodes: [404] }])[0];
 				let m = readMeta(res);
 				if (m.code < 300) {
 					db.msgMap[hash] = m.json?.id || existingId;
@@ -397,9 +392,10 @@ function chunkedFetchAll(reqs, isValid = r => r.getResponseCode() >= 200 && r.ge
 		return res.map((r, j) => {
 			for (let a = 0, rq = chk[j], code, txt, skip; a < max && !isValid(r); a++) {
 				code = r.getResponseCode(); txt = r.getContentText() || "";
-				if ((code !== 0 && code < 500) && (!txt.includes("Address unavailable") && !txt.includes("DNS")) && (skip = getSkipReason(r))) { console.error(`Skipped (${rq.url || "Req"}): ${skip}`); break; }
+				if ((rq.skipRetryCodes || []).includes(code) ? (console.warn(`Skipped retry for status ${code}`), true) : (code !== 0 && code < 500 && !txt.includes("Address unavailable") && !txt.includes("DNS")) && (skip = getSkipReason(r)) && (console.warn(`Skipped [${code}]: ${skip}`), true)) break;
 				const d = Math.min(bf * 2 ** a, mBf);
-				console.warn(`[Retry ${a + 1}/${max}] ${rq.url || "Req"} (Status: ${code}) in ${d}ms`); Utilities.sleep(d);
+				console.warn(`[Retry ${a + 1}/${max}] (Status: ${code}) in ${d}ms`);
+				Utilities.sleep(d);
 				try { r = UrlFetchApp.fetch(rq.url, rq); } catch (e) { console.error(`Fetch Error: ${e.message}`); r = err(e.message); }
 			}
 			return r;
