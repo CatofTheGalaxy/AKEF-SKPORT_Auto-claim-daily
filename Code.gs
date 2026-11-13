@@ -30,7 +30,7 @@ const Settings = {
 	discordUseEdit: true, //update with edit post
 	discordDailyPost: true, //new post everyday follow discordResetTime
 	discordProfilesPerPost: 6, //max profiles per discord post/message
-	retry: { max: 5, initialBackoffMs: 500, maxBackoffMs: 5000 },
+	retry: { max: 5, initialBackoffMs: 500, maxBackoffMs: 5000, randThreshold: 0.2 },
 	endpoints: {
 		refresh: "https://zonai.skport.com/web/v1/auth/refresh",
 		binding: "https://zonai.skport.com/api/v1/game/player/binding",
@@ -385,7 +385,7 @@ function generateSign(path, body, ts, token, plat, v) {
 }
 
 function chunkedFetchAll(reqs, isValid = r => r.getResponseCode() >= 200 && r.getResponseCode() < 300) {
-	const { chunkSize: sz = 20, retry: { max = 5, initialBackoffMs: bf = 500, maxBackoffMs: mBf = 5000 } = {} } = Settings;
+	const { chunkSize: sz = 20, retry: { max = 5, initialBackoffMs: bf = 500, maxBackoffMs: mBf = 5000, randThreshold: rt = 0.2  } = {} } = Settings;
 	const err = m => ({ getContentText: () => JSON.stringify({ error: m }), getResponseCode: () => 0 });
 	return Array.from({ length: Math.ceil(reqs.length / sz) }, (_, i) => reqs.slice(i * sz, (i + 1) * sz)).flatMap(chk => {
 		let res; try { res = UrlFetchApp.fetchAll(chk); } catch (e) { console.error(`Batch Error: ${e.message}`); res = chk.map(() => err(e.message)); }
@@ -393,7 +393,7 @@ function chunkedFetchAll(reqs, isValid = r => r.getResponseCode() >= 200 && r.ge
 			for (let a = 0, rq = chk[j], code, txt, skip; a < max && !isValid(r); a++) {
 				code = r.getResponseCode(); txt = r.getContentText() || "";
 				if ((rq.skipRetryCodes || []).includes(code) ? (console.warn(`Skipped retry for status ${code}`), true) : (code !== 0 && code < 500 && !txt.includes("Address unavailable") && !txt.includes("DNS")) && (skip = getSkipReason(r)) && (console.warn(`Skipped [${code}]: ${skip}`), true)) break;
-				const d = Math.min(bf * 2 ** a, mBf);
+				let d = Math.min(bf * 2 ** a, mBf); d = d + Math.floor(Math.random() * (d * rt));
 				console.warn(`[Retry ${a + 1}/${max}] (Status: ${code}) in ${d}ms`); Utilities.sleep(d);
 				try { r = UrlFetchApp.fetch(rq.url, rq); } catch (e) { console.error(`Fetch Error: ${e.message}`); r = err(e.message); }
 			}
