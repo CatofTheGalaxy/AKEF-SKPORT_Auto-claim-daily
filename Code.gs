@@ -361,9 +361,10 @@ function saveWebData(res) {
 
 function getSkipReason(r) {
 	if (!r) return null;
-	let c = Number(r.getResponseCode()), t = r.getContentText() || "", j = parseJson(t);
-	if (j && j.code !== undefined) return isSuccess(j.code) ? null : Settings.skipCodes[j.code];
-	return /<!doctype|<html|Cloudflare/i.test(t) ? Settings.skipError["HTML"] : Settings.skipError[c] || null;
+	const { code: c, json: j, rawText: t } = readMeta(r);
+	if (j && j.code !== undefined) return isSuccess(j.code) ? null : (j.code in Settings.skipCodes ? Settings.skipCodes[j.code] || j.message || j.msg || `Error Code ${j.code}` : null);
+	if (/<!doctype|<html|Cloudflare/i.test(t)) return Settings.skipError["HTML"] || "Invalid HTML Response / Cloudflare Error";
+	return c in Settings.skipError ? Settings.skipError[c] || j?.message || j?.msg || `HTTP ${c}` : null;
 }
 const isSuccess = code => typeof Settings.successCodes[code] !== 'undefined';
 const isValidResp = r => { let m = readMeta(r); return (m?.json && isSuccess(m.json.code)) || getSkipReason(r) !== null; };
