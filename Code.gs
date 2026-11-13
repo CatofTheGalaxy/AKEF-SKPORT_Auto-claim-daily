@@ -401,17 +401,11 @@ function chunkedFetchAll(reqs, isValid = r => r.getResponseCode() >= 200 && r.ge
 	return Array.from({ length: Math.ceil(reqs.length / sz) }, (_, i) => reqs.slice(i * sz, (i + 1) * sz)).flatMap(chk => {
 		let res; try { res = UrlFetchApp.fetchAll(chk); } catch (e) { console.error(`Batch Error: ${e.message}`); res = chk.map(() => err(e.message)); }
 		return res.map((r, j) => {
-			for (let a = 0, rq = chk[j], code, txt, skip, d; a < max && !isValid(r); a++) {
+			for (let a = 0, rq = chk[j], code, txt, skip; a < max && !isValid(r); a++) {
 				code = r.getResponseCode(); txt = r.getContentText() || "";
-				if ((code !== 0 && code < 500 && code !== 429 && !txt.includes("Address unavailable") && !txt.includes("DNS")) && (skip = getSkipReason(r))) { console.error(`Skipped (${rq.url || "Req"}): ${skip}`); break; }
-				if (code === 429) {
-					try {
-						let h = r.getAllHeaders(), v = Object.entries(h).find(([k]) => k.toLowerCase() === "retry-after")?.[1], n = Number(v);
-						d = v != null && v !== "" ? (Number.isFinite(n) ? n * 1000 : Date.parse(v) - Date.now()) : NaN;
-						d = Number.isFinite(d) && d >= 0 ? Math.ceil(d) + 250 : Math.min(bf * 2 ** a, mBf);
-					} catch (ex) { d = Math.min(bf * 2 ** a, mBf); }
-				} else d = Math.min(bf * 2 ** a, mBf);
-				console.warn(`[Retry ${a + 1}/${max}] ${rq.url || "Req"} (Status: ${code}) waiting ${d}ms`); Utilities.sleep(d);
+				if ((code !== 0 && code < 500) && (!txt.includes("Address unavailable") && !txt.includes("DNS")) && (skip = getSkipReason(r))) { console.error(`Skipped (${rq.url || "Req"}): ${skip}`); break; }
+				const d = Math.min(bf * 2 ** a, mBf);
+				console.warn(`[Retry ${a + 1}/${max}] ${rq.url || "Req"} (Status: ${code}) in ${d}ms`); Utilities.sleep(d);
 				try { r = UrlFetchApp.fetch(rq.url, rq); } catch (e) { console.error(`Fetch Error: ${e.message}`); r = err(e.message); }
 			}
 			return r;
