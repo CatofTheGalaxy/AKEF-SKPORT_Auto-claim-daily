@@ -181,14 +181,10 @@ function discordPost(rows, colCount = Settings.discordColumn || 2, useEdit = Set
 				let m = readMeta(res);
 				if (m.code >= 200 && m.code < 300) {
 					newMsgIds.push(canEdit ? existingId : (m.json?.id || existingId));
-				} else if (canEdit) {
+				} else if (canEdit && m.code === 404) {
 					let pr = chunkedFetchAll([{ url: `${h.discordWebhook}?wait=true`, method: "POST", payload, contentType: "application/json", muteHttpExceptions: true }])[0];
 					let pm = readMeta(pr);
-					if (pm.code >= 200 && pm.code < 300 && pm.json?.id) {
-						newMsgIds.push(pm.json.id);
-					} else {
-						newMsgIds.push(existingId);
-					}
+					newMsgIds.push(pm.code >= 200 && pm.code < 300 && pm.json?.id ? pm.json.id : existingId);
 				} else if (existingId) {
 					newMsgIds.push(existingId);
 				}
@@ -212,14 +208,12 @@ function handleErrorAlerts(rows) {
 	discordApp.forEach(app => {
 		if (!app.notify || !app.myDiscordID || !app.discordWebhook) return;
 		let target = app.dmWebhook || app.discordWebhook;
-		let hash = k(target);
-		let existingId = db.msgMap[hash] || "";
+		let hash = k(target), existingId = db.msgMap[hash] || "";
 		
 		if (errors.length) {
 			let canEdit = !!existingId;
 			let url = canEdit ? `${target}/messages/${existingId}` : `${target}?wait=true`;
 			let method = canEdit ? "PATCH" : "POST";
-			
 			let payload = JSON.stringify({
 				username: "Endfield Assistant",
 				avatar_url: "https://static.skport.com/image/common/20260403/f266b2fc7ac711dc39f89929ba254681.png",
@@ -238,7 +232,7 @@ function handleErrorAlerts(rows) {
 				let m = readMeta(res);
 				if (m.code < 300) {
 					db.msgMap[hash] = m.json?.id || existingId;
-				} else if (canEdit) {
+				} else if (canEdit && m.code === 404) {
 					let newRes = chunkedFetchAll([{ url: `${target}?wait=true`, method: "POST", payload, contentType: "application/json", muteHttpExceptions: true }])[0];
 					let newM = readMeta(newRes);
 					if (newM.code < 300 && newM.json?.id) db.msgMap[hash] = newM.json.id;
