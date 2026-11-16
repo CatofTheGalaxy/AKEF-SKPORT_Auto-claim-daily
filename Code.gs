@@ -398,7 +398,7 @@ function chunkedFetchAll(reqs, isValid = r => r.getResponseCode() >= 200 && r.ge
 				console.warn(`[Retry ${a + 1}/${max}] (Status: ${code}) in ${d}ms`); Utilities.sleep(d);
 				try { r = UrlFetchApp.fetch(rq.url, rq); } catch (e) { console.error(`Fetch Error: ${e.message}`); r = err(e.message); }
 			}
-			return r;
+			return isValid(r) ? (console.log(`Success: ${chk[j].url}`), r) : (console.error(`Failed [${r.getResponseCode()}]: ${chk[j].url}`), r);
 		});
 	});
 }
