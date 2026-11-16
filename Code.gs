@@ -368,6 +368,7 @@ function getSkipReason(r) {
 }
 const isSuccess = code => typeof Settings.successCodes[code] !== 'undefined';
 const isValidResp = r => { let m = readMeta(r); return (m?.json && isSuccess(m.json.code)) || getSkipReason(r) !== null; };
+const getCaller = () => { const s = new Error().stack?.split("\n").slice(1) || [], e = /^(getCaller|chunkedFetchAll|Array\.(forEach|map|filter|reduce|reduceRight|flat|flatMap|some|every|find|findIndex|findLast|findLastIndex|sort|from|of)|Function\.(call|apply|bind)|Object\.(<anonymous>|values|keys|entries)|Promise\.(then|catch|finally|all|allSettled|race|any)|new Promise|AsyncFunction|GeneratorFunction|Generator\.next|setTimeout|setInterval|queueMicrotask)$/; let p; for (const l of s) { const f = l.trim().match(/^at\s+(.+?)(?:\s+\((.+)\))?$/); if (!f) continue; const n = f[1], loc = f[2] || (/^.+:\d+:\d+$/.test(n) ? n : ""); if (loc && !p) p = loc; if (!/^.+:\d+:\d+$/.test(n) && !e.test(n) && !/^(native|node:)/.test(n)) return n; } return p || "anonymous"; };
 const readMeta = r => ({ resp: r, json: parseJson(r?.getContentText() || ""), code: r?.getResponseCode() ?? null, rawText: r?.getContentText() || "" });
 const readJson = (o, size = 5000) => { const s = new WeakSet(), str = JSON.stringify(o, (k, v) => typeof v === "object" && v ? (s.has(v) ? "[Circular]" : (s.add(v), v)) : v, 2); for (let i = 0; i < str.length; i += size) console.log(str.slice(i, i + size)); };
 const parseJson = s => { try { return JSON.parse(s); } catch (e) { return null; } };
@@ -385,20 +386,20 @@ function generateSign(path, body, ts, token, plat, v) {
 	return bytesToHex(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, bytesToHex(hmac)));
 }
 
-function chunkedFetchAll(reqs, isValid = r => r.getResponseCode() >= 200 && r.getResponseCode() < 300) {
+function chunkedFetchAll(reqs, isValid = r => r.getResponseCode() >= 200 && r.getResponseCode() < 300, tag = getCaller()) {
 	const { chunkSize: sz = 20, retry: { max = 5, initialBackoffMs: bf = 500, maxBackoffMs: mBf = 5000, randThreshold: rt = 0.2 } = {} } = Settings;
 	const err = m => ({ getContentText: () => JSON.stringify({ error: m }), getResponseCode: () => 0 });
 	return Array.from({ length: Math.ceil(reqs.length / sz) }, (_, i) => reqs.slice(i * sz, (i + 1) * sz)).flatMap(chk => {
-		let res; try { res = UrlFetchApp.fetchAll(chk); } catch (e) { console.error(`Batch Error: ${e.message}`); res = chk.map(() => err(e.message)); }
+		let res; try { res = UrlFetchApp.fetchAll(chk); } catch (e) { console.error(`[${tag}] Batch Error: ${e.message}`); res = chk.map(() => err(e.message)); }
 		return res.map((r, j) => {
 			for (let a = 0, rq = chk[j], skip; a < max && !isValid(r); a++) {
 				const { code, rawText: txt } = readMeta(r);
-				if ((rq.skipRetryCodes || []).includes(code) ? (console.warn(`Skipped retry for status ${code}`), true) : (code !== 0 && !txt.includes("Address unavailable") && !txt.includes("DNS")) && (skip = getSkipReason(r)) && (console.warn(`Skipped [${code}]: ${skip}`), true)) break;
+				if ((rq.skipRetryCodes || []).includes(code) ? (console.warn(`[${tag}] Skipped retry for status ${code}`), true) : (code !== 0 && !txt.includes("Address unavailable") && !txt.includes("DNS")) && (skip = getSkipReason(r)) && (console.warn(`[${tag}] Skipped [${code}]: ${skip}`), true)) break;
 				let d = Math.min(bf * 2 ** a, mBf); d += Math.floor(Math.random() * d * rt);
-				console.warn(`[Retry ${a + 1}/${max}] (Status: ${code}) in ${d}ms`); Utilities.sleep(d);
-				try { r = UrlFetchApp.fetch(rq.url, rq); } catch (e) { console.error(`Fetch Error: ${e.message}`); r = err(e.message); }
+				console.warn(`[${tag}] [Retry ${a + 1}/${max}] (Status: ${code}) in ${d}ms`); Utilities.sleep(d);
+				try { r = UrlFetchApp.fetch(rq.url, rq); } catch (e) { console.error(`[${tag}] Fetch Error: ${e.message}`); r = err(e.message); }
 			}
-			return isValid(r) ? (console.log(`Success: ${chk[j].url}`), r) : (console.error(`Failed [${r.getResponseCode()}]: ${chk[j].url}`), r);
+			return isValid(r) ? (console.log(`[${tag}] Success: ${chk[j].url}`), r) : (console.error(`[${tag}] Failed [${r.getResponseCode()}]: ${chk[j].url}`), r);
 		});
 	});
 }
