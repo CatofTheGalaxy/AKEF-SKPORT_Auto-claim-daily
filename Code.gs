@@ -30,6 +30,9 @@ const Settings = {
 	discordUseEdit: true, //update with edit post
 	discordDailyPost: true, //new post everyday follow discordResetTime
 	discordProfilesPerPost: 6, //max profiles per discord post/message
+	energyFocus: { regen: 432e3, focus: [160, 200, 240] },
+	webCFG: { columns: 'auto', minColWidth: '300px', gridGap: '15px' },
+	cardMode: { blockTime: false, exponentialMovingAverage: false, aicUsePercent: true },
 	retry: { max: 5, initialBackoffMs: 500, maxBackoffMs: 5000, randThreshold: 0.2 },
 	endpoints: {
 		refresh: "https://zonai.skport.com/web/v1/auth/refresh",
@@ -245,7 +248,8 @@ function handleErrorAlerts(rows) {
 
 const buildPlayerCard = (p, b = false) => {
 	if (!p?.playerCard || !p?.skGameRole) return "";
-	let s = PropertiesService.getScriptProperties(), rKey = p.skGameRole, now = Date.now(), rgt = 432e3, bt = false, ema = false, key = "card_db";
+	let s = PropertiesService.getScriptProperties(), rKey = p.skGameRole, now = Date.now(), key = "card_db";
+	let { energyFocus: { regen: rgt = 432e3, focus: enf = [] } = {}, cardMode: { blockTime: bt = false, exponentialMovingAverage: ema = false, aicUsePercent: apc = false } = {} } = Settings || {};
 	let { base: bs = {}, domain: dl = [], dungeon: dg = {}, bpSystem: bp = {}, dailyMission: dm = {}, weeklyMission: wm = {} } = p.playerCard;
 	let en = +dg.curStamina || 0, em = +dg.maxStamina || 0, dc = Settings.discordColumn === 1;
 	let db = JSON.parse(s.getProperty(key) || "{}"), acc = db[rKey] || { updatedAt: now, sta: { curStamina: en, maxTs: +dg.maxTs || now }, aic: [] };
@@ -276,7 +280,7 @@ const buildPlayerCard = (p, b = false) => {
 				let diff = sum - (old.curMoney || 0);
 				if (mins >= 1 && diff > 0) {
 					let calc = diff / mins; rate = ema && rate > 0 ? (calc > rate + 3 ? rate + 1.2 : rate - 0.7 + calc * 0.3) : calc;
-				} else if (diff < 0) { rate = 0; }
+				}
 				maxTs = (rate > 0 && max - sum > 0) ? Math.floor(now + ((max - sum) / rate) * 6e4) : null;
 				domAic[sIdx] = { curMoney: sum, rate, maxTs };
 			} else {
@@ -289,7 +293,7 @@ const buildPlayerCard = (p, b = false) => {
 		let cur = sList.reduce((a, x) => a + +x.remainMoney, 0), max = sList.reduce((a, x) => a + +x.moneyMax, 0), fd = sList.filter(x => +x.remainMoney === +x.moneyMax).length;
 		let rList = sList.map((x, i) => {
 			let isFull = +x.remainMoney >= +x.moneyMax, pct = ((+x.remainMoney / +x.moneyMax) * 100).toFixed(2) + "%";
-			let status = isFull ? wrap("Fulled") : (x.maxTs ? `+${shn(x.rate)}/m, ~${fmt(x.maxTs)}` : pct);
+			let status = isFull ? wrap("Fulled") : (x.maxTs ? `${apc ? pct : `+${shn(x.rate)}/m`}, ~${fmt(x.maxTs)}` : pct);
 			let remStr = `${shn(x.remainMoney)}/${shn(x.moneyMax)}`;
 			return dc ? `\u2003\u2003[${i + 1}]: ${tr(x.name)}\n\u2003\u2003\u2003— ${remStr} | ${status}` : `\u2003\u2003[${i + 1}]: ${remStr}`;
 		}).join("\n");
@@ -300,7 +304,8 @@ const buildPlayerCard = (p, b = false) => {
 	});
 	db[rKey] = acc; s.setProperty(key, JSON.stringify(db));
 	let eStr = cap => en >= cap ? wrap("Fulled") : fmt(savedTs + (cap - em) * rgt);
-	return `\n🔑 Login: ${fmt(bs.lastLoginTime * 1e3)}\n🌸 Daily: ${dm.dailyActivation ?? 0}/${dm.maxDailyActivation ?? 0}\n📅 Weekly: ${wm.score ?? 0}/${wm.total ?? 0}\n🌟 BP: ${bp.curLevel ?? 0}/${bp.maxLevel ?? 0}\n⚡️ Energy: ${en}/${em}\n${[160, 200, 240, em].map(v => `\u2003→ ${v}: ${eStr(v)}`).join("\n")}\n🏠 AIC Funds: ${aMax ? ((aSum / aMax) * 100).toFixed(2) : "0.00"}%${aStr}`;
+	let fStr = Array.isArray(enf) && enf.length ? "\n" + [...new Set(em != null ? [...enf, em] : enf)].map(v => `\u2003→ ${v}: ${eStr(v)}`).join("\n") : "";
+	return `\n🔑 Login: ${fmt(bs.lastLoginTime * 1e3)}\n🌸 Daily: ${dm.dailyActivation ?? 0}/${dm.maxDailyActivation ?? 0}\n📅 Weekly: ${wm.score ?? 0}/${wm.total ?? 0}\n🌟 BP: ${bp.curLevel ?? 0}/${bp.maxLevel ?? 0}\n⚡️ Energy: ${en}/${em}${fStr}\n🏠 AIC Funds: ${aMax ? ((aSum / aMax) * 100).toFixed(2) : "0.00"}%${aStr}`;
 };
 
 function doGet(e) {
@@ -331,8 +336,12 @@ function getNextResetTimestamps(st) {
 function saveWebData(res) {
 	let s = PropertiesService.getScriptProperties(), u = Date.now();
 	let tr = n => (typeof DomainLib !== 'undefined' && DomainLib?.translate?.(n)) || n;
+	let { energyFocus: { regen: rgt = 432e3, focus: enf = [160, 200, 240] } = {}, cardMode: { blockTime: bt = false, exponentialMovingAverage: ema = false, aicUsePercent: apc = false } = {}, webCFG: { columns: col = 'auto', minColWidth: mcw = '300px', gridGap: gg = '15px' } = {} } = Settings || {};
 	let d = JSON.stringify({
 		updatedAt: u, serverReset: getNextResetTimestamps(Settings), tz: Session.getTimeZone(),
+		energyFocus: { regen: rgt, focus: Array.isArray(enf) ? [...enf] : [] },
+		cardMode: { blockTime: bt, exponentialMovingAverage: ema, aicPercent: apc },
+		webCFG: { columns: col, minColWidth: mcw, gridGap: gg },
 		accounts: res.map(p => {
 			let cp = p.playerCard;
 			return {
