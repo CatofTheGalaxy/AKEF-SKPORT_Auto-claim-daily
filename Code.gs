@@ -298,9 +298,8 @@ const buildPlayerCard = (p, b = false) => {
 			return dc ? `\u2003\u2003[${i + 1}]: ${tr(x.name)}\n\u2003\u2003\u2003— ${remStr} | ${status}` : `\u2003\u2003[${i + 1}]: ${remStr}`;
 		}).join("\n");
 		aSum += cur; aMax += max;
-		let tName = tr(d.name), dName = dc ? tName : tName.trim().split(/\s+/)[0];
 		let dStatus = (sList.length && fd === sList.length) ? wrap("Fulled") : (max ? ((cur / max) * 100).toFixed(2) : "0.00") + "%";
-		aStr += `\n\u2003→ ${dName} [${fd}/${sList.length}]: ${dStatus}${rList ? "\n" + rList : ""}`;
+		aStr += `\n\u2003→ ${tr(d.name)} [${fd}/${sList.length}]: ${dStatus}${rList ? "\n" + rList : ""}`;
 	});
 	db[rKey] = acc; s.setProperty(key, JSON.stringify(db));
 	let eStr = cap => en >= cap ? wrap("Fulled") : fmt(savedTs + (cap - em) * rgt);
