@@ -84,9 +84,8 @@ function main() {
 }
 
 function formatResult(p, meta, i) {
-	let store = PropertiesService.getScriptProperties(), key = "reward_db", now = Date.now(), tr = n => typeof DomainLib !== "undefined" ? (DomainLib?.translate?.(n) || n) : n;
-	let db = Object.assign({ updatedAt: 0, items: {}, accounts: {} }, JSON.parse(store.getProperty(key) || "{}")), skip = getSkipReason(meta?.resp);
-	let out = { nickname: p.nickname || `#${i + 1}`, serverName: p.serverName || "", uid: p.uid || "", skGameRole: p.skGameRole || "", success: false, status: "", msg: "", raw: (meta?.rawText || "").slice(0, 2000), itemIcon_url: [], playerCard: p?.playerCard ?? {} };
+	let store = PropertiesService.getScriptProperties(), key = "reward_db", now = Date.now(), tr = n => typeof DomainLib !== "undefined" ? (DomainLib?.translate?.(n) || n) : n, skip = getSkipReason(meta?.resp);
+	let db = Object.assign({ updatedAt: 0, items: {}, accounts: {} }, JSON.parse(store.getProperty(key) || "{}")), out = { nickname: p.nickname || `#${i + 1}`, serverName: p.serverName || "", uid: p.uid || "", skGameRole: p.skGameRole || "", success: false, status: "", msg: "", raw: (meta?.rawText || "").slice(0, 2000), itemIcon_url: [], playerCard: p?.playerCard ?? {} };
 	if (!db.updatedAt) db.updatedAt = now;
 	if (skip) { out.status = `❌ ${skip}`; out.msg = meta?.json?.message || skip; }
 	else if (!meta?.json) { out.status = "💥 Invalid JSON"; out.msg = meta?.rawText ? `HTML Error (Preview: ${meta.rawText.slice(0, 50).trim()}...)` : "No response"; }
@@ -101,46 +100,25 @@ function formatResult(p, meta, i) {
 				store.setProperty(key, JSON.stringify(db));
 			}
 			let map = db.accounts[acc] || {}, ids = Object.keys(map).filter(id => (Number(map[id]) || 0) > 0 && db.items[id]);
-			out.msg = ids.length ? ids.map(id => `${db.items[id][0]} x${map[id]}`).join("\n") : "🎁 Successfully claimed";
-			out.itemIcon_url = ids.map(id => db.items[id][1]).filter(Boolean);
+			out.msg = ids.length ? ids.map(id => `${db.items[id][0]} x${map[id]}`).join("\n") : "🎁 Successfully claimed"; out.itemIcon_url = ids.map(id => db.items[id][1]).filter(Boolean);
 		} else { out.status = `❌ Error (Code: ${j.code})`; out.msg = j.message || "Unknown Error"; }
 	}
+	Settings.dailyUpdatedAt = db.updatedAt;
 	console.log(`[${out.nickname} (${out.serverName})]\n🆔 ${out.uid}\n${out.status}\n${out.msg}${typeof buildPlayerCard !== "undefined" ? buildPlayerCard(p) : ""}`);
 	return out;
 }
 
 function discordPost(rows, colCount = Settings.discordColumn || 2, useEdit = Settings.discordUseEdit || false) {
-	const store = PropertiesService.getScriptProperties(), key = "discord_db", rKey = "reward_db", k = u => Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, u).map(b => (b + 256).toString(16).slice(-2)).join("");
-	const hooks = discordApp.filter(o => o.notify && o.discordWebhook), rewardUpdatedAt = Number(JSON.parse(store.getProperty(rKey) || "{}").updatedAt || 0);
+	const store = PropertiesService.getScriptProperties(), key = "discord_db", k = u => Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, u).map(b => (b + 256).toString(16).slice(-2)).join(""), hooks = discordApp.filter(o => o.notify && o.discordWebhook), rewardUpdatedAt = Number(Settings.dailyUpdatedAt || 0);
 	let db = Object.assign({ updatedAt: 0, msgMap: {} }, JSON.parse(store.getProperty(key) || "{}"));
 	if (!useEdit || (useEdit && Settings.discordDailyPost && rewardUpdatedAt && db.updatedAt !== rewardUpdatedAt)) db = { updatedAt: rewardUpdatedAt, msgMap: {} };
 	db.msgMap = db.msgMap || {};
-
-	const getReset = (type, opt, extra) => {
-		const n = new Date(), o = type == 'cycle' ? extra : opt, [a, rt = "00:00:00"] = Array.isArray(o) ? (type == 'daily' ? [0, o[0]] : o) : [o?.wd ?? o?.cyc ?? 0, o?.rt ?? o], t = new Date(n); t.setHours(...rt.split(':'), 0);
-		if (type != 'cycle') { const d = type == 'weekly' ? (a - n.getDay() + 7) % 7 : 0; t.setDate(t.getDate() + d + (!d && t <= n ? (type == 'weekly' ? 7 : 1) : 0)); return Math.floor(t / 1000); }
-		const b = new Date(opt.replace(" ", "T")), cyc = a * 864e5; b.setHours(...rt.split(':'), 0); return Math.floor((+b + Math.ceil((n - b + 1) / cyc) * cyc) / 1000);
-	};
-
+	const getReset = (type, opt, extra) => { const n = new Date(), o = type == 'cycle' ? extra : opt, [a, rt = "00:00:00"] = Array.isArray(o) ? (type == 'daily' ? [0, o[0]] : o) : [o?.wd ?? o?.cyc ?? 0, o?.rt ?? o], t = new Date(n); t.setHours(...rt.split(':'), 0); if (type != 'cycle') { const d = type == 'weekly' ? (a - n.getDay() + 7) % 7 : 0; t.setDate(t.getDate() + d + (!d && t <= n ? (type == 'weekly' ? 7 : 1) : 0)); return Math.floor(t / 1000); } const b = new Date(opt.replace(" ", "T")), cyc = a * 864e5; b.setHours(...rt.split(':'), 0); return Math.floor((+b + Math.ceil((n - b + 1) / cyc) * cyc) / 1000); };
 	let maxP = Settings.discordProfilesPerPost || 6, rowChunks = Array.from({ length: Math.ceil(rows.length / maxP) }, (_, i) => rows.slice(i * maxP, (i + 1) * maxP));
-
 	hooks.forEach(h => {
 		const hash = k(h.discordWebhook), savedMap = db.msgMap[hash], msgIds = Array.isArray(savedMap) ? savedMap : (savedMap ? [savedMap] : []), newMsgIds = [];
 		rowChunks.forEach((chunk, idx) => {
-			const embed = {
-				title: `📝 Endfield - Report${rowChunks.length > 1 ? ` (${idx + 1}/${rowChunks.length})` : ""} [<t:${nowTs()}:d>]`,
-				color: chunk.every(r => r.success) ? [0xFF0000, 0xFFFF00, 0xFF69B4, 0x00A86B, 0xFFA500, 0x00BFFF, 0x800080][new Date().getDay()] : 0x2F3136,
-				thumbnail: { url: "https://static.skport.com/image/common/20260122/a2ab8d4de53aabd3b1c305cbdbcab688.png" },
-				fields: [
-					{ name: "**Useful Link**", value: "[App](https://script.google.com/home/my) | [Home](https://endfield.gryphline.com/) | [Sched](https://endfield.gryphline.com/en-us#calendar) | [SKP](https://www.skport.com/) | [Wiki](https://wiki.skport.com/endfield) | [Guide](https://www.prydwen.gg/arknights-endfield/) | [Map](https://opendfieldmap.org/) | [BP#1](https://endfieldtools.dev/community-factories/) | [BP#2](https://talospioneers.com) | [Ess](https://endfieldtools.dev/weapon-essence-solver/)", inline: false },
-					{ name: "**Server Reset**", value: `🌸 Daily: <t:${getReset('daily', Settings.serverDailyReset)}:R>\n🛒 Arsenal: <t:${getReset('weekly', Settings.serverArsenalReset)}:R>\n⚔️ EoW: <t:${getReset('weekly', Settings.serverEowReset)}:R>`, inline: true },
-					{ name: `\u200B`, value: `📅 Weekly: <t:${getReset('weekly', Settings.serverWeelyReset)}:R>\n🌟 BP: <t:${getReset('cycle', Settings.serverBPCycleStart, Settings.serverBPCycleEnd)}:R>`, inline: true },
-					{ name: "", value: "", inline: false },
-					...chunk.flatMap((r, i) => [{ name: `👤 **${r.nickname} (${r.serverName})**\n🆔 \`${r.uid}\``, value: `**Status:**\n\u2003${r.status}\n**Response:**\n\u2003${r.msg.replace(/\n/g, '\n\u2003')}${buildPlayerCard(r, true).replace(/\n/g, '\n\u2003')}`, inline: true }, ...((i + 1) % colCount === 0 && i + 1 < chunk.length ? [{ name: "", value: "", inline: false }] : [])])
-				],
-				footer: { text: "Updated on", icon_url: "https://assets.skport.com/assets/favicon.ico" },
-				timestamp: new Date().toISOString()
-			};
+			const embed = { title: `📝 Endfield - Report${rowChunks.length > 1 ? ` (${idx + 1}/${rowChunks.length})` : ""} [<t:${nowTs()}:d>]`, color: chunk.every(r => r.success) ? [0xFF0000, 0xFFFF00, 0xFF69B4, 0x00A86B, 0xFFA500, 0x00BFFF, 0x800080][new Date().getDay()] : 0x2F3136, thumbnail: { url: "https://static.skport.com/image/common/20260122/a2ab8d4de53aabd3b1c305cbdbcab688.png" }, fields: [{ name: "**Useful Link**", value: "[App](https://script.google.com/home/my) | [Home](https://endfield.gryphline.com/) | [Sched](https://endfield.gryphline.com/en-us#calendar) | [SKP](https://www.skport.com/) | [Wiki](https://wiki.skport.com/endfield) | [Guide](https://www.prydwen.gg/arknights-endfield/) | [Map](https://opendfieldmap.org/) | [BP#1](https://endfieldtools.dev/community-factories/) | [BP#2](https://talospioneers.com) | [Ess](https://endfieldtools.dev/weapon-essence-solver/)", inline: false }, { name: "**Server Reset**", value: `🌸 Daily: <t:${getReset('daily', Settings.serverDailyReset)}:R>\n🛒 Arsenal: <t:${getReset('weekly', Settings.serverArsenalReset)}:R>\n⚔️ EoW: <t:${getReset('weekly', Settings.serverEowReset)}:R>`, inline: true }, { name: `\u200B`, value: `📅 Weekly: <t:${getReset('weekly', Settings.serverWeelyReset)}:R>\n🌟 BP: <t:${getReset('cycle', Settings.serverBPCycleStart, Settings.serverBPCycleEnd)}:R>`, inline: true }, { name: "", value: "", inline: false }, ...chunk.flatMap((r, i) => [{ name: `👤 **${r.nickname} (${r.serverName})**\n🆔 \`${r.uid}\``, value: `**Status:**\n\u2003${r.status}\n**Response:**\n\u2003${r.msg.replace(/\n/g, '\n\u2003')}${buildPlayerCard(r, true).replace(/\n/g, '\n\u2003')}`, inline: true }, ...((i + 1) % colCount === 0 && i + 1 < chunk.length ? [{ name: "", value: "", inline: false }] : [])])], footer: { text: "Updated on", icon_url: "https://assets.skport.com/assets/favicon.ico" }, timestamp: new Date().toISOString() };
 			const existingId = msgIds[idx], canEdit = useEdit && !!existingId, payload = JSON.stringify({ username: "Endfield Assistant", avatar_url: "https://static.skport.com/image/common/20260403/f266b2fc7ac711dc39f89929ba254681.png", embeds: [embed] });
 			try {
 				let res = chunkedFetchAll([{ url: canEdit ? `${h.discordWebhook}/messages/${existingId}` : `${h.discordWebhook}?wait=true`, method: canEdit ? "PATCH" : "POST", payload, contentType: "application/json", muteHttpExceptions: true, skipRetryCodes: [404] }])[0], m = readMeta(res);
