@@ -30,7 +30,7 @@ const Settings = {
 	discordProfilesPerPost: 6, //max profiles per discord post/message
 	energyFocus: { regen: 432e3, focus: [160, 200, 240] },
 	cardMode: { blockTime: false, exponentialMovingAverage: false, aicUsePercent: true },
-	webCFG: { columns: 'auto', minColWidth: '300px', gridGap: '15px', ipCacheKey: "ef_dashboard_cache", ipCacheTtl: 216e5 },
+	webCFG: { columns: 'auto', minColWidth: '300px', gridGap: '15px' },
 	retry: { batchSize: 20, max: 5, initialBackoffMs: 500, maxBackoffMs: 5000, randThreshold: 0.2 },
 	endpoints: {
 		refresh: "https://zonai.skport.com/web/v1/auth/refresh",
@@ -210,12 +210,6 @@ function getWebData() {
 	try { let parsed = JSON.parse(raw) || fb, cnt = Math.ceil(raw.length / sz), cb = { [cmk]: JSON.stringify({ updatedAt: u, chunks: cnt }) }; for (let i = 0; i < cnt; i++) cb[cp + i] = raw.slice(i * sz, (i + 1) * sz); try { cache.putAll(cb, 21600); console.log(`[getWebData] Built and saved cache (${cnt} chunks)`); } catch (e) { console.warn(`[getWebData] Cache write failed: ${e.message}`); } return parsed; } catch (e) { console.warn(`[getWebData] Parse failed, returning fallback: ${e.message}`); return fb; }
 }
 
-function logViewer(info = {}) {
-	let em = ''; try { em = Session.getActiveUser().getEmail() || ''; } catch (err) {}
-	let ipPart = [info.ip, [info.city, info.region, info.country].filter(Boolean).join(', '), info.org].filter(Boolean).join(' | ');
-	console.log('[Viewer]', em ? `${em} | ${ipPart || '-'}` : (ipPart || '-'));
-}
-
 function getNextResetTimestamps(st) {
 	let now = new Date(), nowMs = now.getTime();
 	let setT = (d, t) => { let [h, m, s] = t.split(':').map(Number); d.setHours(h, m, s, 0); return d; };
@@ -234,10 +228,10 @@ function getNextResetTimestamps(st) {
 
 function saveWebData(res) {
 	let s = PropertiesService.getScriptProperties(), u = Date.now(), tr = n => (typeof DomainLib !== "undefined" && DomainLib?.translate?.(n)) || n, cSize = 8000, cPrefix = "web_chunk_", mKey = "web_meta", cmk = "cache_meta", cp = "cache_chunk_";
-	let { energyFocus: { regen: rgt = 432e3, focus: enf = [160, 200, 240] } = {}, cardMode: { blockTime: bt = false, exponentialMovingAverage: ema = false, aicUsePercent: apc = false } = {}, webCFG: { columns: col = "auto", minColWidth: mcw = "300px", gridGap: gg = "15px", ipCacheKey: ipKey = "ef_dashboard_cache", ipCacheTtl: ipTtl = 216e5 } = {} } = Settings || {};
+	let { energyFocus: { regen: rgt = 432e3, focus: enf = [160, 200, 240] } = {}, cardMode: { blockTime: bt = false, exponentialMovingAverage: ema = false, aicUsePercent: apc = false } = {}, webCFG: { columns: col = "auto", minColWidth: mcw = "300px", gridGap: gg = "15px" } = {} } = Settings || {};
 	let d = JSON.stringify({
 		updatedAt: u, serverReset: typeof getNextResetTimestamps === "function" ? getNextResetTimestamps(Settings) : null, tz: Session.getTimeZone(),
-		energyFocus: { regen: rgt, focus: Array.isArray(enf) ? [...enf] : [] }, cardMode: { blockTime: bt, exponentialMovingAverage: ema, aicPercent: apc }, webCFG: { columns: col, minColWidth: mcw, gridGap: gg, ipCacheKey: ipKey, ipCacheTtl: ipTtl },
+		energyFocus: { regen: rgt, focus: Array.isArray(enf) ? [...enf] : [] }, cardMode: { blockTime: bt, exponentialMovingAverage: ema, aicPercent: apc }, webCFG: { columns: col, minColWidth: mcw, gridGap: gg },
 		accounts: (Array.isArray(res) ? res : []).map(p => {
 			let cp = p?.playerCard, dg = cp?.dungeon, bp = cp?.bpSystem, dm = cp?.dailyMission, wm = cp?.weeklyMission;
 			return { nickname: p?.nickname || "", uid: p?.uid || "", serverName: p?.serverName || "", success: !!p?.success, status: p?.status || "", msg: p?.msg || "", itemIcon_url: p?.itemIcon_url || [], skGameRole: p?.skGameRole || "", playerCard: cp?.base ? { base: { lastLoginTime: cp.base.lastLoginTime, avatarUrl: cp.base.avatarUrl }, dungeon: dg && { curStamina: dg.curStamina, maxStamina: dg.maxStamina, maxTs: dg.maxTs }, bpSystem: bp && { curLevel: bp.curLevel, maxLevel: bp.maxLevel }, dailyMission: dm && { dailyActivation: dm.dailyActivation, maxDailyActivation: dm.maxDailyActivation }, weeklyMission: wm && { score: wm.score, total: wm.total }, domain: (cp.domain || []).map(dom => ({ name: tr(dom.name), settlements: (dom.settlements || []).filter(x => +x.level > 0).map(({ level, name, remainMoney, moneyMax, rate, maxTs }) => ({ level, name: tr(name), remainMoney, moneyMax, rate: rate || 0, maxTs: maxTs || null })) })) } : null };
