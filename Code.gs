@@ -30,8 +30,7 @@ const Settings = {
 	discordProfilesPerPost: 6, //max profiles per discord post/message
 	energyFocus: { regen: 432e3, focus: [160, 200, 240] },
 	cardMode: { blockTime: false, exponentialMovingAverage: false, aicUsePercent: true },
-	webCFG: { columns: 'auto', minColWidth: '300px', gridGap: '15px', keepViewLog: false, ipCacheKey: "ef_dashboard_cache", ipCacheTtl: 216e5 },
-	gooSheet: { useSheet: false, sheetId: "https://docs.google.com/spreadsheets/d/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/edit", sheetName: "ViewerLogs", dataTtl: 2592e6 },
+	webCFG: { columns: 'auto', minColWidth: '300px', gridGap: '15px' },
 	retry: { batchSize: 20, max: 5, initialBackoffMs: 500, maxBackoffMs: 5000, randThreshold: 0.2 },
 	endpoints: {
 		refresh: "https://zonai.skport.com/web/v1/auth/refresh",
@@ -209,37 +208,6 @@ function getWebData() {
 	let raw = ""; for (let i = 0; i < n; i++) raw += all[p + i] || "";
 	if (!raw) { console.log("[getWebData] Empty property chunks, returning fallback"); return fb; }
 	try { let parsed = JSON.parse(raw) || fb, cnt = Math.ceil(raw.length / sz), cb = { [cmk]: JSON.stringify({ updatedAt: u, chunks: cnt }) }; for (let i = 0; i < cnt; i++) cb[cp + i] = raw.slice(i * sz, (i + 1) * sz); try { cache.putAll(cb, 21600); console.log(`[getWebData] Built and saved cache (${cnt} chunks)`); } catch (e) { console.warn(`[getWebData] Cache write failed: ${e.message}`); } return parsed; } catch (e) { console.warn(`[getWebData] Parse failed, returning fallback: ${e.message}`); return fb; }
-}
-
-function authorizeSpreadsheet() {
-	let cfg = Settings?.gooSheet || {}, rawId = cfg.sheetId ?? cfg.SheetId ?? "", id = rawId ? (String(rawId).trim().match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)?.[1] || String(rawId).trim()) : "", auth = ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL).getAuthorizationStatus(), res = !id ? { ok: false, id: "", auth, reason: "missing_sheet_id" } : (() => { try { return { ok: true, id, name: SpreadsheetApp.openById(id).getName(), auth }; } catch (e) { return { ok: false, id, auth, reason: e?.message || String(e) }; } })();
-	console.log("[SheetAuth]", JSON.stringify(res));
-	return res;
-}
-
-function logViewer(info = {}) {
-	let cfg = Settings?.gooSheet || {}, useSheet = !!(cfg.useSheet ?? true), rawId = cfg.sheetId ?? cfg.SheetId ?? "", sheetId = rawId ? (String(rawId).trim().match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)?.[1] || String(rawId).trim()) : "", shName = cfg.sheetName || cfg.SheetName || "ViewerLogs", dedupeMs = 432e5, dataTtl = Math.max(0, Number(cfg.dataTtl ?? cfg.ttlMs ?? cfg.ttl ?? cfg.expired ?? 2592e6) || 0), em = "";
-	try { em = Session.getActiveUser().getEmail() || ""; } catch (_) {}
-	let ip = info.ip || "-", loc = [info.city, info.region, info.country].filter(Boolean).join(", ") || "-", org = info.org || "-", line = em ? `${em} | ${ip} | ${loc} | ${org}` : `${ip} | ${loc} | ${org}`;
-	console.log("[Viewer]", line);
-	if (!useSheet || !sheetId) return line;
-	let sh = null;
-	try { let ss = SpreadsheetApp.openById(sheetId); sh = ss.getSheetByName(shName) || ss.insertSheet(shName); } catch (e) { console.warn("[Viewer][SheetErr]", e?.message || e); return line; }
-	let hdr = ["Timestamp", "Email", "IP", "Location", "Org", "Summary", "Count"];
-	if (!sh.getLastRow()) sh.appendRow(hdr); else if (sh.getLastColumn() < hdr.length) sh.getRange(1, hdr.length).setValue("Count");
-	let last = sh.getLastRow(), now = Date.now(), dt = new Date(now), cut = now - dataTtl, matched = false, toTs = v => v instanceof Date ? v.getTime() : (typeof v === "number" ? (v > 0 && v < 1e11 ? v * 1e3 : v) : (v ? (/^\d+$/.test(String(v).trim()) ? (Number(v) < 1e11 ? Number(v) * 1e3 : Number(v)) : new Date(v).getTime()) : 0)), same = (rEm, rIp) => { let a = em && rEm && rEm !== "-", b = ip && ip !== "-" && rIp && rIp !== "-"; return (a && b) ? (rEm === em || rIp === ip) : (a ? rEm === em : (b ? rIp === ip : false)); };
-	if (last >= 2) {
-		let rows = sh.getRange(2, 1, last - 1, 7).getValues();
-		if (em || (ip && ip !== "-")) {
-			for (let i = rows.length - 1; i >= 0; i--) {
-				let ts = toTs(rows[i][0]); if (!ts || now - ts > dedupeMs) break;
-				if (same(rows[i][1], rows[i][2])) { let nEm = em || rows[i][1] || "-", nIp = ip !== "-" ? ip : (rows[i][2] || "-"), nLoc = loc !== "-" ? loc : (rows[i][3] || "-"), nOrg = org !== "-" ? org : (rows[i][4] || "-"), nLine = nEm !== "-" ? `${nEm} | ${nIp} | ${nLoc} | ${nOrg}` : `${nIp} | ${nLoc} | ${nOrg}`, cnt = Math.max(1, Number(rows[i][6]) || 1) + 1; sh.getRange(i + 2, 1, 1, 7).setValues([[dt, nEm, nIp, nLoc, nOrg, nLine, cnt]]); matched = true; break; }
-			}
-		}
-		if (!matched) sh.appendRow([dt, em || "-", ip, loc, org, line, 1]);
-		if (dataTtl > 0) for (let i = rows.length - 1; i >= 0; i--) { let ts = toTs(rows[i][0]); if (ts && ts < cut) sh.deleteRow(i + 2); }
-	} else sh.appendRow([dt, em || "-", ip, loc, org, line, 1]);
-	return line;
 }
 
 function getNextResetTimestamps(st) {
