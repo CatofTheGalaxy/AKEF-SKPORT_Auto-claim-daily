@@ -28,8 +28,8 @@ const Settings = {
 	discordUseEdit: true, //update with edit post
 	discordDailyPost: true, //new post everyday follow discordResetTime
 	discordProfilesPerPost: 6, //max profiles per discord post/message
-	energyFocus: { regen: 432e3, focus: [160, 200, 240] },
-	aicRegionFocus: ["Wuling"],
+	energyFocus: { regen: 432e3, focus: [160, 200, 240] }, //show target energy
+	aicRegionFocus: [""], //shnow only aic region name in list ex : Wuling / [] = show all
 	cardMode: { blockTime: false, exponentialMovingAverage: false, aicUsePercent: true },
 	webCFG: { columns: 'auto', minColWidth: '300px', gridGap: '15px' },
 	retry: { batchSize: 20, max: 5, initialBackoffMs: 500, maxBackoffMs: 5000, randThreshold: 0.2 },
